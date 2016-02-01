@@ -1,19 +1,21 @@
  function get_msg(name)
   local msg = {}
   msg["CommandList"] = {
-    ["list"] = {"help","grant","revoke","share","unshare","info","who","get","restart"},
-    ["help"]   = "查看指令,按U(密语)后输入指令",
-    ["grant"]  = "自建箱子授权给在屏幕内的基友可打开",
-    ["revoke"] = "自建箱子取消grant授权",
-    ["share"]  = "自建箱子无条件给共享任何基友使用",
+    ["list"] = {"help","grant","revoke","share","unshare","info","ls","get","restart"},
+    ["help"]= "查看指令,按U(密语)后输入指令",
+    ["grant"]= "自建箱子授权给在屏幕内的基友可打开",
+    ["revoke"]= "自建箱子取消grant授权",
+    ["share"]= "自建箱子无条件给共享任何基友使用",
     ["unshare"]= "自建箱子上锁(取消share共享,grant授权的还可用)",
-    ["info"]   = "查看个人信息情况",
-    ["ls"]    = "查看身边箱子信息情况",
-    ["get"]    = "收回处于所在世界特制道具",
+    ["info"]= "查看个人信息情况",
+    ["ls"]= "查看身边箱子信息情况",
+    ["get"]= "收回处于所在世界特制道具",
     ["restart"]= "重新选择角色,CD30分钟",
     ["clearmap"]= "管理员清理垃圾专用",
-    ["ban"]   = "管理员ban熊专用",
-    ["kick"] = "管理员kick熊专用",
+    ["lsplayer"]= "管理员查看专用",
+    ["setsuper"]= "管理员授权专用",
+    ["ban"]= "管理员ban熊专用",
+    ["kick"]= "管理员kick熊专用",
   }
   msg["announce"] ={
     [1]="指令一律为按U后输入执行,\"help\"查看游戏指令",
@@ -62,5 +64,14 @@ end
 function table.assign(to,from,keys)
   if type(from) == "table" and type(to) == "table" then
     for k,v in pairs(from) do if keys then if table.contains(keys,k) then to[k] = from[k] end else to[k]=from[k] end end
+  end
+end
+function string.IsValidKey(key)
+  if type(key) == "string" then
+    local len  = string.len(key)
+    local _,t1 = string.find(key,"%w+")
+    local _,t2 = string.find(key,"%d+")
+    local _,t3 = string.find(key,"%a+")
+    return len >= 8 and len==t1 and t1~=t2 and t1~=t3
   end
 end

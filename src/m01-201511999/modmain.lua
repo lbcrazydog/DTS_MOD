@@ -317,32 +317,19 @@ local function OnLs(player)
 end
 local PrivateItem={["minerhat"]="矿 工 帽",["armor_sanity"]="夜魔盔甲",["cane"]="步行手杖",["piggyback"]="猪 皮 包",["orangestaff"]="传送手杖",["greenamulet"]="建造护符"}
 local function OnInfo(player)
-  if player.info and player.info.item then
-    local str = "人 物 等 级 : "..tostring(player.info.lvl or 0).." \n"
-    for k,v in pairs(player.info.item) do
-      str = PrivateItem[k] .. v and " : 拥 有 \n" or ": 未 拥 有 \n"
-    end
-    AddTaskTalk(player,str)
+  if player and player.info then
+    AddTaskTalk(player,playerdesc(player))
   end
 end
-local function OnGet(player)
-  if player.info and player.info.item then
-    local itemid = {}
-    for k,v in pairs(player.info.item) do if v then itemid[v] = 1 end end
-    if table.len(itemid) > 0 then
-      local n = 0
-      local x,y,z = player.Transform:GetWorldPosition()
-      for k,v in pairs(itemid) do
-        if _G.Ents[k] and _G.Ents[k]:HasTag(OwnerID..player.userid) then
-          local tx,ty,tz = _G.Ents[k].Transform:GetWorldPosition()
-          if (x-tx)^2 + (z-tz)^2 > 16 then
-            _G.Ents[k].Transform:SetPosition(x,0,z)
-            n = n + 1
-          end
-        end
-      end
-      AddTaskTalk(player,n > 0 and ("目 前 有 "..tostring(n).." 件装 备 摆 在 我 眼 前") or "收 回 些 空 气 ")
+local function OnGet(inst)
+  if inst.info and inst.info.Item > 0 and playerlvl(inst) >= 30 then
+    local x,y,z = inst.Transform:GetWorldPosition()
+    local num = 0
+    for _,v in pairs(_G.TheSim:FindEntities(x,0,z,10000,{"M_Private","GiftItem","ownerid_"..inst.userid})) do
+      local tx,ty,tz = v.Transform:GetWorldPosition()
+      if (x-tx)^2 + (z-tz)^2 > 16 then v.Transform:SetPosition(x,0,z) num = num+1 end
     end
+    AddTaskTalk(inst,num > 0 and ("曾经有 "..tostring(num).."件 东西摆在我面前,可是我没有捡起它") or "我们之间的距离是否太遥远或太近??")
   end
 end
 local _PlayerList = {}
@@ -359,16 +346,47 @@ local function OnRestart(inst)
   AddTaskTalk(inst,inst:GetDisplayName()..",重 生 请 求 失 败 ... 30 Min 你 懂 的",1)
   return false
 end
-local function OnSuperMode(inst)
-  if _SuperPlayers[inst.userid] ~= nil then
-    _SuperPlayers[inst.userid] = not _SuperPlayers[inst.userid]
-    AddTaskTalk(inst,_SuperPlayers[inst.userid] and "是 啦" or "不 是 啦",0.5)
+local function OnSaveKey(inst,pwd)
+  local str = "所有权提取码设置失败!\n长度必须大等于8位\n格式为:字母+数字+字母或数字+字母+数字"
+  if string.IsValidKey(pwd) and inst.userid and _G.TheWorld.info["players"][inst.userid] then
+    local isdup = false
+    for k,v in pairs(_G.TheWorld.info["players"]) do if v.SaveKey==pwd and k~=inst.userid then isdup = true break end end
+    if not isdup then
+      _G.TheWorld.info["players"][inst.userid].SaveKey = pwd
+      str = "记好了!提取码设置为："..tostring(pwd)
+    end
   end
+  AddTaskTalk(inst,str)
+end
+--OwnerID = "ownerid_"
+local function OnGetByKey(inst,pwd)
+  if string.IsValidKey(pwd) and inst.userid then
+    local ownername,owerid = nil,nil
+    for k,v in pairs(_G.TheWorld.info["players"]) do if v.SaveKey==pwd and k~=inst.userid then ownername =v.name owerid=k break end end
+    if owerid ~= nil then
+      local num = 0
+      for _,s in pairs(TheSim:FindEntities(0,0,0,10000,{"M_Private","ownerid_"..owerid},{"GiftItem","INLIMBO"})) do
+        s:RemoveTag("ownerid_"..owerid)
+        s:AddTag("ownerid_"..inst.userid)
+        s:AddTag("ownerid_"..inst.userid)
+        s.Info[ToAddTags][OwnerID] = OwnerID..inst.userid
+      end
+      _G.TheWorld.info["players"][inst.userid].SaveKey = "null"
+      inst.info.SaveKey = "null"
+      AddTaskTalk(inst,"获得所有权共计:" ..tostring(num).."处")
+    end
+  end
+end
+local function OnSetSuper(inst,num)
+  local target = tonumber(num) and AllPlayers[tonumber(num)] or inst
+  local set =_SuperPlayers[target.userid] == nil or not _SuperPlayers[target.userid]
+  _SuperPlayers[target.userid] = set
+  AddTaskTalk(target,set and "OH OH OH 成为超级人物啦!!!" or "NO NO NO 不是超级人物啦!!!")
 end
 local function Onhelp(inst)
   local help = HelpInfo
-  AddTaskTalk(inst,help,1.0)
-  AddTaskTalk(inst,help,3.0)
+  AddTaskTalk(inst,help,1)
+  AddTaskTalk(inst,help,3)
 end
 local _ClearPrefabs = {["faroz_gls"]=0,["wheatpouch"]=0,["acehat"]=0,["skeleton_player"]=0,["lavae"]=0,["stinger"]=2,["guano"]=2,["spoiled_food"]=10,["boneshard"]=2,["feather_crow"]=2,["feather_robin"]=2,["feather_robin_winter"]=2,["houndstooth"]=2,["poop"]=2,}
 local function OnClearMap(inst)
@@ -416,18 +434,25 @@ local function DoAnnounce(inst,data)
     end
   end
 end
-local function Ban(num,baner)
-  local p = AllPlayers[num]
-  if p and p.userid then
-    local str = p.name.." 他 怎 么 了 ?"
-    for k, v in pairs(p.components.inventory.itemslots) do
-      v:Remove()
-    end
-    for k, item in pairs(p.components.inventory.equipslots) do
-      v:Remove()
-    end
-    TheNet:Ban(p.userid)
-    AddTaskTalk(baner,str)
+local function OnLsplayer(inst)
+  local scr = "当前用户:\n"
+  for k, v in pairs(AllPlayers) do scr = scr.."["..tostring(k).."] ["..v.userid.."] 名字:"..v.name.."\n" end
+  AddTaskTalk(inst,scr)
+end
+local function OnKick(inst,num)
+  local target = tonumber(num) and AllPlayers[tonumber(num)]
+  if target then
+    AddTaskTalk(inst,target.name.." Kick 他 怎 么 了 ?")
+    target.components.inventory:DropEverything(false, false)
+    TheNet:Kick(target.userid)
+  end
+end
+local function OnBan(inst,num)
+  local target = tonumber(num) and AllPlayers[tonumber(num)]
+  if target then
+    AddTaskTalk(inst,target.name.." Ban 他 怎 么 了 ?")
+    target.components.inventory:DropEverything(false, false)
+    TheNet:Ban(target.userid)
   end
 end
 local _BurnTags = {Light = "canlight",NoLight = "nolight",FireImmune = "fireimmune"}
@@ -546,20 +571,26 @@ _G.Networking_Say =  function(guid,userid,name,prefab,message,colour,whisper)
       table.insert(execom,temp)
     end
     if execom[1] and _CommandList[execom[1]] and table.len(execom) == 1 then
-      if     execom[1] =="help"      then Onhelp(talker)
-      elseif execom[1] =="grant"     then OnGrant(talker)
-      elseif execom[1] =="revoke"    then OnRevoke(talker)
-      elseif execom[1] =="share"     then OnShare(talker)
-      elseif execom[1] =="unshare"   then OnUnshare(talker)
-      elseif execom[1] =="restart"   then OnRestart(talker)
-      elseif execom[1] =="supermode" then OnSuperMode(talker)
-      elseif execom[1] =="clearmap" and _SuperPlayers[talker.userid] ~= nil then OnClearMap(talker)
-      elseif execom[1] =="ls"  then OnLs(talker)
+      if     execom[1] =="help" then Onhelp(talker)
+      elseif execom[1] =="grant" then OnGrant(talker)
+      elseif execom[1] =="revoke" then OnRevoke(talker)
+      elseif execom[1] =="share" then OnShare(talker)
+      elseif execom[1] =="unshare" then OnUnshare(talker)
+      elseif execom[1] =="ls" then OnLs(talker)
+      elseif execom[1] =="info" then OnInfo(talker)
+      elseif execom[1] =="restart" then OnRestart(talker)
+      elseif execom[1] =="get" then OnGet(talker)
+      elseif execom[1] =="clearmap" and _SuperPlayers[talker.userid] then OnClearMap(talker)
+      elseif execom[1] =="lsplayer" and _SuperPlayers[talker.userid] then OnLsplayer(talker)
+      elseif execom[1] =="ban" and _SuperPlayers[talker.userid] then OnBan(talker,execom[2])
+      elseif execom[1] =="kick" and _SuperPlayers[talker.userid] then OnKick(talker,execom[2])
+      elseif execom[1] =="setsuper" and _SuperPlayers[talker.userid]~=nil then OnSetSuper(talker,execom[2])
       end
     end
   end
   return oldsayinst
 end
+
 local function OnBuild_new(doer,prod)
   if prod.components.inventoryitem == nil and doer.userid then
     local x,y,z = doer.Transform:GetWorldPosition()

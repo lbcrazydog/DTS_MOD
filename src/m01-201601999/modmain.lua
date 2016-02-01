@@ -104,22 +104,7 @@ end
 local function AutoSpawn()
   if _G.TheWorld.state.iswinter and (_G.TheShard:GetShardId() == cave01 or _G.TheShard:GetShardId() == master) then DoReSpawn() end
 end
-----------------
-local _DimInfo={name="无名氏",Restart=0,Death=0,CurAge=0,HisAge=0,HisMaxAge=0,DeathAge=0,DeathOn=0,Lvl=1,Left=0,Join=0,Item=0,JionByRestart=false,Online=false}
-local function SyncInfo(inst,player,event)
-  if player and player.components and player.info then
-    inst.info["players"][player.userid] = inst.info["players"][player.userid] or table.copy(_DimInfo, true)
-    if event == "ms_playerjoined" then
-      table.assign(player.info,inst.info["players"][player.userid])
-    elseif event == "ms_playerdespawnanddelete" or event == "ms_playerleft" then
-      table.assign(inst.info["players"][player.userid],player.info)
-    elseif event == "ms_becameghost" then
-      table.assign(inst.info["players"][player.userid],player.info,{"DeathOn","Death"})
-    elseif event == "ms_respawnedfromghost" then
-      table.assign(inst.info["players"][player.userid],player.info,{"DeathOn","DeathAge"})
-    end
-  end
-end
+local _DimInfo={name="无名氏",SaveKey="null",Restart=0,Death=0,CurAge=0,HisAge=0,HisMaxAge=0,DeathAge=0,DeathOn=0,Lvl=1,Left=0,Join=0,Item=0,JionByRestart=false,Online=false}
 local function playerlvl(player)
   local lvl = ((player.info.HisAge + player.components.age:GetAge())/480+1)/(player.info.Restart > 4 and (player.info.Restart-3) or 1) - player.info.Death*2
   return  lvl > 1 and math.floor(lvl) or 1
@@ -143,28 +128,39 @@ local function playerdesc(player)
   end
 end
 local function DoGiftRemove(player)
-  if player.Item > 0 and playerlvl(player) < 30 then
+  if player.info.Item > 0 and playerlvl(player) < 30 then
     for _,v in pairs(_G.TheSim:FindEntities(v.x,0,v.z,10,{"M_Private","GiftItem","ownerid_"..player.userid})) do v:Remove() end
-    player.Item = 0
+    player.info.Item = 0
   end
 end
 local function OnGiftCheck(player)
   local lvl = math.floor((playerlvl(player)-10)/20)
   local check = lvl < 1 and 0 or (lvl > 5 and 5 or lvl)
-  if player.Item ~= check then
+  if player.info.Item ~= check then
     if check == 0 then
       DoGiftRemove(player)
-    elseif player.Item == 0 then
+    elseif player.info.Item == 0 then
       DoGiftGive(player)
-    elseif player.Item > check then
+    elseif player.info.Item > check then
       DoGiftDesgrade(player,check)
-    elseif player.Item < check then
+    elseif player.info.Item < check then
       DoGiftUpgrade(player,check)
     end
   end
 end
-local function Onplayerjoined(inst,player)
-  SyncInfo(inst,player,"ms_playerjoined")
+local function SyncInfo(inst,player,event)
+  if player and player.components and player.info then
+    inst.info["players"][player.userid] = inst.info["players"][player.userid] or table.copy(_DimInfo,true)
+    if event == "ms_playerjoined" then
+      table.assign(player.info,inst.info["players"][player.userid])
+    elseif event == "ms_playerdespawnanddelete" or event == "ms_playerleft" then
+      table.assign(inst.info["players"][player.userid],player.info)
+    elseif event == "ms_becameghost" then
+      table.assign(inst.info["players"][player.userid],player.info,{"DeathOn","Death"})
+    elseif event == "ms_respawnedfromghost" then
+      table.assign(inst.info["players"][player.userid],player.info,{"DeathOn","DeathAge"})
+    end
+  end
 end
 local function SaveHisInfo(player)
   player.info.Restart = player.info.Restart + 1
@@ -175,6 +171,15 @@ local function SaveHisInfo(player)
   player.info.Lvl = (player.info.HisAge/480+1)/(player.info.Restart > 3 and (player.info.Restart-3) or 1) - player.info.Death*2
   player.info.Lvl = player.info.Lvl > 1 and math.floor(player.info.Lvl) or 1
 end
+local ghost_kick = false
+local function Onplayerjoined(inst,player)
+  SyncInfo(inst,player,"ms_playerjoined")
+  if ghost_kick and player and player.components and player.info then
+    if player.info.DeathOn > 0 and (player.components.age:GetAge()-player.info.DeathOn)>24*60 then
+      player:DoTaskInTime(20, function() if player.old_ghost then _G.TheNet:Kick(player.userid) end end)
+    end
+  end
+end
 local function Onplayerdespawnanddelete(inst,player)
   SaveHisInfo(player)
   SyncInfo(inst,player,"ms_playerdespawnanddelete")
@@ -182,12 +187,12 @@ end
 local function Onplayerleft(inst,player)
   SyncInfo(inst,player,"ms_playerdespawnanddelete")
 end
-local function becameghost(inst,player)
+local function Onbecameghost(inst,player)
   player.info.Death = player.info.Death + 1
   player.info.DeathOn = player.components.age:GetAge()
   SyncInfo(inst,player,"ms_becameghost")
 end
-local function respawnedfromghost(inst,player)
+local function Onrespawnedfromghost(inst,player)
   player.info.DeathAge = player.info.DeathAge + player.components.age:GetAge() - player.info.DeathOn
   player.info.DeathOn = 0
   SyncInfo(inst,player,"ms_respawnedfromghost")
@@ -223,12 +228,15 @@ AddPrefabPostInit("world", function(inst)
   inst.OnLoad_old = inst.OnLoad
   inst.OnLoad = OnLoad
 end)
-AddComponentPostInit("playerspawner",function(OnPlayerSpawn,inst)
+AddComponentPostInit("playerspawner",function(PlayerSpawner,inst)
   inst:ListenForEvent("ms_playerjoined",Onplayerjoined)
   inst:ListenForEvent("ms_playerdespawnanddelete",Onplayerdespawnanddelete)
-  inst:ListenForEvent("ms_playerleft",Onplayerleft)
-  inst:ListenForEvent("ms_becameghost",becameghost)
-  inst:ListenForEvent("ms_respawnedfromghost",respawnedfromghost)
+  inst:ListenForEvent("ms_playerdisconnected",Onplayerleft)
+  inst:ListenForEvent("ms_playerleft", Onplayerleft)
+  inst:ListenForEvent("master_slaveplayerschanged", OnSlavePlayersChanged)
+  inst:ListenForEvent("ms_playerspawn",Onplayerspawn)
+  inst:ListenForEvent("ms_becameghost",Onbecameghost)
+  inst:ListenForEvent("ms_respawnedfromghost",Onrespawnedfromghost)
 end)
 function _G.WorldInt()
   SetSeason()
