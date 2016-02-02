@@ -66,31 +66,31 @@ local function ResetCave()
   end
 end
 local function OnIntworld(inst)
-  if inst.info.isinit == false then
+  if inst.Info.isinit == false then
     SetSeason()
     IntPort()
     ManualLinkPort()
-    inst.info.isinit = true
+    inst.Info.isinit = true
     print("--------------------------------------OnIntworld(world) has done!!")
   end
 end
 local _ToReSpawnPrefabs={["beefalo"]=20,["lightninggoat"]=20,["rook"]=10,["bishop"]=10,["knight"]=10,["rook_nightmare"]=10,["bishop_nightmare"]=10,["knight_nightmare"]=10,["wall_ruins"]=1,["ruins_statue_head"]=1,["ruins_statue_mage"]=1,["ruins_statue_mage_nogem"]=1,["rock_flintless"]=1,["rock_flintless_low"]=1,["rock_flintless_med"]=1,["rock1"]=1,["rock2"]=1,["cactus"]=1,["reeds"]=1}
 local function SaveReSpawnInfo(world)
-  if world.info.isrespawnsave == false then
+  if world.Info.isrespawnsave == false then
     for k,v in pairs(_G.Ents) do
       if v.prefab and _ToReSpawnPrefabs[v.prefab] then
         local X,Y,Z = v.Transform:GetWorldPosition()
-        table.insert(world.info["respawnlist"],{prefab =v.prefab,x=X,z=Z,range=_ToReSpawnPrefabs[v.prefab]})
+        table.insert(world.Info["respawnlist"],{prefab =v.prefab,x=X,z=Z,range=_ToReSpawnPrefabs[v.prefab]})
       end
     end
-    world.info.isrespawnsave = true
+    world.Info.isrespawnsave = true
     print(" --------------------------------------SaveReSpawnInfo(world) has done!!")
   end
 end
 local function DoReSpawn()
-  if _G.TheWorld.info and _G.TheWorld.info["respawnlist"] then
+  if _G.TheWorld.Info and _G.TheWorld.Info["respawnlist"] then
     local torespawn = {}
-    for _,v in pairs(_G.TheWorld.info["respawnlist"]) do
+    for _,v in pairs(_G.TheWorld.Info["respawnlist"]) do
       local should = true
       if table.len(_G.TheSim:FindEntities(v.x,0,v.z,10,{"M_Private"},{"INLIMBO"}))==0 then
         for _,p in pairs(_G.TheSim:FindEntities(v.x,0,v.z,v.range)) do if p.prefab == v.prefab then should = false break end end
@@ -104,121 +104,19 @@ end
 local function AutoSpawn()
   if _G.TheWorld.state.iswinter and (_G.TheShard:GetShardId() == cave01 or _G.TheShard:GetShardId() == master) then DoReSpawn() end
 end
-local _DimInfo={name="无名氏",SaveKey="null",Restart=0,Death=0,CurAge=0,HisAge=0,HisMaxAge=0,DeathAge=0,DeathOn=0,Lvl=1,Left=0,Join=0,Item=0,JionByRestart=false,Online=false}
-local function playerlvl(player)
-  local lvl = ((player.info.HisAge + player.components.age:GetAge())/480+1)/(player.info.Restart > 4 and (player.info.Restart-3) or 1) - player.info.Death*2
-  return  lvl > 1 and math.floor(lvl) or 1
-end
-local function getplayerinfo(player)
-  if player and player.components and player.info then
-    local curinfo={}
-    curinfo.death = player.info.Death
-    curinfo.restart = player.info.Restart
-    curinfo.ageday = math.floor((player.info.HisAge + player.components.age:GetAge())/480+1)
-    curinfo.maxageday = math.floor(math.max(player.info.HisMaxAge,player.components.age:GetAge())/480+1)
-    curinfo.deathageday = math.floor(player.info.DeathAge/480)
-    curinfo.lvl = playerlvl(player)
-    return curinfo
-  end
-end
-local function playerdesc(player)
-  local msg = getplayerinfo(player)
-  if msg then
-    return player.name.."\n等 级: "..tostring(msg.lvl).." [生存/(重生-3)-死亡*2]".."\n累 计  生 存 天 数 : "..tostring(msg.ageday).."\n最 长  生 存 天 数 : "..tostring(msg.maxageday).."\n累 计  重 生 次 数 : "..tostring(msg.restart).."\n累 计  死 亡 次 数 : "..tostring(msg.death).."\n累 计  死 亡 天 数 : "..tostring(msg.deathageday)
-  end
-end
-local function DoGiftRemove(player)
-  if player.info.Item > 0 and playerlvl(player) < 30 then
-    for _,v in pairs(_G.TheSim:FindEntities(v.x,0,v.z,10,{"M_Private","GiftItem","ownerid_"..player.userid})) do v:Remove() end
-    player.info.Item = 0
-  end
-end
-local function OnGiftCheck(player)
-  local lvl = math.floor((playerlvl(player)-10)/20)
-  local check = lvl < 1 and 0 or (lvl > 5 and 5 or lvl)
-  if player.info.Item ~= check then
-    if check == 0 then
-      DoGiftRemove(player)
-    elseif player.info.Item == 0 then
-      DoGiftGive(player)
-    elseif player.info.Item > check then
-      DoGiftDesgrade(player,check)
-    elseif player.info.Item < check then
-      DoGiftUpgrade(player,check)
-    end
-  end
-end
-local function SyncInfo(inst,player,event)
-  if player and player.components and player.info then
-    inst.info["players"][player.userid] = inst.info["players"][player.userid] or table.copy(_DimInfo,true)
-    if event == "ms_playerjoined" then
-      table.assign(player.info,inst.info["players"][player.userid])
-    elseif event == "ms_playerdespawnanddelete" or event == "ms_playerleft" then
-      table.assign(inst.info["players"][player.userid],player.info)
-    elseif event == "ms_becameghost" then
-      table.assign(inst.info["players"][player.userid],player.info,{"DeathOn","Death"})
-    elseif event == "ms_respawnedfromghost" then
-      table.assign(inst.info["players"][player.userid],player.info,{"DeathOn","DeathAge"})
-    end
-  end
-end
-local function SaveHisInfo(player)
-  player.info.Restart = player.info.Restart + 1
-  player.info.HisAge = player.info.HisAge + player.components.age:GetAge()
-  player.info.HisMaxAge = math.max(player.info.HisMaxAge,player.components.age:GetAge())
-  player.info.DeathAge = player.info.DeathAge + (player.info.DeathOn == 0 and 0 or (player.components.age:GetAge() - player.info.DeathOn))
-  player.info.DeathOn = 0
-  player.info.Lvl = (player.info.HisAge/480+1)/(player.info.Restart > 3 and (player.info.Restart-3) or 1) - player.info.Death*2
-  player.info.Lvl = player.info.Lvl > 1 and math.floor(player.info.Lvl) or 1
-end
-local ghost_kick = false
-local function Onplayerjoined(inst,player)
-  SyncInfo(inst,player,"ms_playerjoined")
-  if ghost_kick and player and player.components and player.info then
-    if player.info.DeathOn > 0 and (player.components.age:GetAge()-player.info.DeathOn)>24*60 then
-      player:DoTaskInTime(20, function() if player.old_ghost then _G.TheNet:Kick(player.userid) end end)
-    end
-  end
-end
-local function Onplayerdespawnanddelete(inst,player)
-  SaveHisInfo(player)
-  SyncInfo(inst,player,"ms_playerdespawnanddelete")
-end
-local function Onplayerleft(inst,player)
-  SyncInfo(inst,player,"ms_playerdespawnanddelete")
-end
-local function Onbecameghost(inst,player)
-  player.info.Death = player.info.Death + 1
-  player.info.DeathOn = player.components.age:GetAge()
-  SyncInfo(inst,player,"ms_becameghost")
-end
-local function Onrespawnedfromghost(inst,player)
-  player.info.DeathAge = player.info.DeathAge + player.components.age:GetAge() - player.info.DeathOn
-  player.info.DeathOn = 0
-  SyncInfo(inst,player,"ms_respawnedfromghost")
-end
 local function OnSave(inst,data)
   if inst.OnSave_old ~= nil then inst.OnSave_old(inst,data) end
-  if inst.info ~= nil then data.info = inst.info end
+  if inst.Info ~= nil then data.Info = inst.Info end
 end
 local function OnLoad(inst,data)
   if inst.OnLoad_old ~= nil then inst.OnLoad_old(inst,data) end
-  if data ~= nil and data.info ~= nil then inst.info = data.info end
+  if data ~= nil and data.Info ~= nil then inst.Info = data.Info end
 end
-AddPlayerPostInit(function(inst)
-  inst.info = inst.info or table.copy(_DimInfo, true)
-  if inst.components.inspectable then inst.components.inspectable.getspecialdescription = playerdesc end
-  inst.OnSave_old = inst.OnSave
-  inst.OnSave = OnSave
-  inst.OnLoad_old = inst.OnLoad
-  inst.OnLoad = OnLoad
-end)
 AddPrefabPostInit("world", function(inst)
-  inst.info = inst.info or {}
-  inst.info["players"] = inst.info["players"] or {}
-  inst.info["respawnlist"] = inst.info["respawnlist"] or {}
-  inst.info.isinit = inst.info.isinit or false
-  inst.info.isrespawnsave = inst.info.isrespawnsave or false
+  inst.Info = inst.Info or {}
+  inst.Info.respawnlist = inst.Info.respawnlist or {}
+  inst.Info.isinit = inst.Info.isinit or false
+  inst.Info.isrespawnsave = inst.Info.isrespawnsave or false
   inst:ListenForEvent("ms_playerspawn",OnIntworld)
   inst:ListenForEvent("ms_registermigrationportal",SaveReSpawnInfo)
   inst:ListenForEvent("ms_setseason",AutoSpawn)
@@ -227,16 +125,6 @@ AddPrefabPostInit("world", function(inst)
   inst.OnSave = OnSave
   inst.OnLoad_old = inst.OnLoad
   inst.OnLoad = OnLoad
-end)
-AddComponentPostInit("playerspawner",function(PlayerSpawner,inst)
-  inst:ListenForEvent("ms_playerjoined",Onplayerjoined)
-  inst:ListenForEvent("ms_playerdespawnanddelete",Onplayerdespawnanddelete)
-  inst:ListenForEvent("ms_playerdisconnected",Onplayerleft)
-  inst:ListenForEvent("ms_playerleft", Onplayerleft)
-  inst:ListenForEvent("master_slaveplayerschanged", OnSlavePlayersChanged)
-  inst:ListenForEvent("ms_playerspawn",Onplayerspawn)
-  inst:ListenForEvent("ms_becameghost",Onbecameghost)
-  inst:ListenForEvent("ms_respawnedfromghost",Onrespawnedfromghost)
 end)
 function _G.WorldInt()
   SetSeason()
