@@ -8,7 +8,7 @@ local AllPlayers = _G.AllPlayers
 local _CMD=SetModVariables("command")
 local _MSGA=SetModVariables("announce")
 local _MSGT=SetModVariables("talkmsg")
-local _MAP=SetModVariables("shardname")
+local _MAP=SetModVariables("mapsinfo")
 local _GNAME=SetModVariables("gitfname")
 local _GITEM=SetModVariables("gitfitem")
 local _SITEM=SetModVariables("superitem")
@@ -22,6 +22,9 @@ local _Privilege=SetModVariables("privilege")
 local _ActionType=SetModVariables("action")
 local _BurnTags=SetModVariables("burntags")
 local _QuickPickPrefab=SetModVariables("quickpick")
+local _ClearPrefabs = SetModVariables("clearprefabs")
+local _ComDist = SetModVariables("cmddis")
+
 local GrantSuperPlayer=false ---超级是否有特权
 local ToAddTags  = "Add"        --需添加标签
 local ToDelTags  = "Del"        --需移除标签
@@ -36,7 +39,6 @@ local OwnerID    = "OwnerID_"   --所有者实例前缀
 local GrantID    = "GrantID_"   --授权实例标前缀
 local SaverID    = "SaverID_"   --失效实例前缀
 local Desc       = "Desc"
-local first = 0
 -----------------------------------
 _G.TUNING.PERISH_FRIDGE_MULT=_AJ.fridge ~= 0 and _G.TUNING.PERISH_FRIDGE_MULT/_AJ.fridge or 0
 _G.TUNING.DRY_FAST=_AJ.dry~=0 and _G.TUNING.DRY_FAST/_AJ.dry or 10
@@ -87,9 +89,9 @@ local function playerdesc(player)
     return player.name.."\n等 级: "..tostring(msg.lvl).." [生存/(重生-3)-死亡*2]".."\n累 计  生 存 天 数 : "..tostring(msg.ageday).."\n最 长  生 存 天 数 : "..tostring(msg.maxageday).."\n累 计  重 生 次 数 : "..tostring(msg.restart).."\n累 计  死 亡 次 数 : "..tostring(msg.death).."\n累 计  死 亡 天 数 : "..tostring(msg.deathageday)
   end
 end
-local function DoGiftRemove(player)
+local function GiftRemoveChecker(player)
   if player.Info.Item > 0 and getplayerlvl(player) < 30 then
-    for _,v in pairs(_G.TheSim:FindEntities(v.x,0,v.z,10,{IsPrivate,IsGift,OwnerID..player.userid})) do v:Remove() end
+    for _,v in pairs(_G.TheSim:FindEntities(0,0,0,10000,{IsPrivate,IsGift,OwnerID..player.userid})) do v:Remove() end
     player.Info.Item = 0
   end
 end
@@ -98,7 +100,7 @@ local function OnGiftCheck(player)
   local check = lvl < 1 and 0 or (lvl > 5 and 5 or lvl)
   if player.Info.Item ~= check then
     if check == 0 then
-      DoGiftRemove(player)
+      GiftRemoveChecker(player)
     elseif player.Info.Item == 0 then
       DoGiftGive(player)
     elseif player.Info.Item > check then
@@ -140,6 +142,7 @@ local function Onplayerdespawnanddelete(inst,player)
 end
 local function Onplayerleft(inst,player)
   SyncInfo(inst,player,"ms_playerdespawnanddelete")
+  GiftRemoveChecker(player)
 end
 local function Onbecameghost(inst,player)
   player.Info.Death = player.Info.Death + 1
@@ -150,6 +153,44 @@ local function Onrespawnedfromghost(inst,player)
   player.Info.DeathAge = player.Info.DeathAge + player.components.age:GetAge() - player.Info.DeathOn
   player.Info.DeathOn = 0
   SyncInfo(inst,player,"ms_respawnedfromghost")
+end
+local function SpawnGift(player,prefabs)
+  for _,v in pairs(prefabs) do
+    local gift = _G.SpawnPrefab(v)
+    SetInfo(gift,player,_ActionType.OnGift)
+    SetGift(gift)
+    gift.Transform:SetPosition(player.Transform:GetWorldPosition())
+  end
+end
+local function SetGift(inst)
+  if inst.prefab == "minerhat" then
+    inst.components.fueled:InitializeFuelLevel(inst.Info.lvl < 4 and (300+600*inst.Info.lvl) or 36000)
+  elseif inst.prefab == "armor_sanity" then
+    inst.components.equippable.ontakedamage = nil
+    inst.components.equippable.dapperness   = 0
+    inst.components.armor:InitCondition(inst.Info.lvl < 4 and (500+500*inst.Info.lvl) or 50000,inst.Info.lvl < 4 and (0.45+0.15*inst.Info.lvl) or 0.95)
+  elseif inst.prefab == "cane" then
+    if inst.components.tool == nil then inst:AddComponent("tool") end
+    inst.components.tool:SetAction(_G.ACTIONS.CHOP,1)
+    if inst.Info.lvl == 2 then
+      inst.components.tool:SetAction(_G.ACTIONS.MINE,1)
+    elseif inst.Info.lvl == 3 then
+      inst.components.weapon:SetDamage(50)
+      inst.components.weapon:SetRange(1)
+    end
+  elseif inst.prefab == "piggyback" then
+    inst.components.equippable.walkspeedmult = 1
+    if inst.components.waterproofer == nil then inst:AddComponent("waterproofer") end
+    inst.components.waterproofer:SetEffectiveness(_G.TUNING.WATERPROOFNESS_LARGE)
+    inst:AddTag("waterproofer")
+    if inst.Info.lvl == 2 then
+      inst.components.equippable.dapperness = _G.TUNING.DAPPERNESS_SMALL
+    elseif inst.Info.lvl == 3 then
+      inst:AddTag("fridge")
+    end
+  elseif inst.prefab == "orangestaff"  or inst.prefab == "greenamulet" then
+    inst.components.finiteuses.Use = function(val) return 0 end
+  end
 end
 -----------------------------------
 local function HasEntityInRange(x,y,z,radius,musttags,mustoneoftags,notags)
@@ -339,7 +380,6 @@ local function AddTaskTalk(inst,message,delay)
     inst:DoTaskInTime(delay or 0.5,function(inst) inst.components.talker:Say(message or "无 言 以 对...") end)
   end
 end
-local _ComDist = 3
 local function OnGrant(inst)
   local x,y,z = inst.Transform:GetWorldPosition()
   local ents = TheSim:FindEntities(x,y,z,_ComDist,{OwnerID..inst.userid},{"INLIMBO"})
@@ -478,7 +518,6 @@ local function Onhelp(inst)
   AddTaskTalk(inst,help,1)
   AddTaskTalk(inst,help,3)
 end
-local _ClearPrefabs = {["faroz_gls"]=0,["wheatpouch"]=0,["acehat"]=0,["skeleton_player"]=0,["lavae"]=0,["stinger"]=2,["guano"]=2,["spoiled_food"]=10,["boneshard"]=2,["feather_crow"]=2,["feather_robin"]=2,["feather_robin_winter"]=2,["houndstooth"]=2,["poop"]=2,}
 local function OnClearMap(inst)
   local delnum = 0
   local ents = TheSim:FindEntities(0,0,0,10000,nil,{"INLIMBO"})
@@ -501,26 +540,18 @@ local function OnClearMap(inst)
   if inst and inst:HasTag("player") then
     AddTaskTalk(inst,_MSGT.mapclear..tostring(delnum),0.5)
   else
-    _G.TheWorld:DoTaskInTime(5,function() TheNet:Announce(_MAP[TheShard:GetShardId()].._MSGT.worldclear..tostring(delnum)) end)
+    _G.TheWorld:DoTaskInTime(5,function() TheNet:Announce(_MAP[TheShard:GetShardId()].name.._MSGT.worldclear..tostring(delnum)) end)
   end
-end
-local function clearworld(inst,data)
-  if math.mod(_G.TheWorld.state.cycles,10)==0 and _G.TheWorld.state.cycles > 20 then OnClearMap(inst) end
 end
 local function DoAnnounce(inst,data)
   if _G.TheShard:GetShardId()~="1" then return end
-  if first < 2 then first = first + 1 return end
   local num = #_MSGA
-  if _G.TheWorld.state.cycles < 10 then
+  if _G.TheWorld.state.cycles < 20 then
     local inter = math.ceil(7*60/num)
-    for i = 1, num do
-      _G.TheWorld:DoTaskInTime(inter*i, function() _G.TheNet:Announce(_MSGA[i]) end)
-    end
+    for i = 1, num do _G.TheWorld:DoTaskInTime(inter*i, function() _G.TheNet:Announce(_MSGA[i]) end) end
   else
     _G.TheWorld:DoTaskInTime(20, function() _G.TheNet:Announce(_MSGA[1]) end)
-    for i= 1,4 do
-      _G.TheWorld:DoTaskInTime(90*i, function() _G.TheNet:Announce(_MSGA[math.random(1+i,num)]) end)
-    end
+    for i= 1,4 do _G.TheWorld:DoTaskInTime(90*i, function() _G.TheNet:Announce(_MSGA[math.random(1+i,num)]) end) end
   end
 end
 local function OnLsplayer(inst)
@@ -717,8 +748,8 @@ end)
 AddPrefabPostInit("world", function(inst)
   inst.Info = inst.Info or {}
   inst.Info.players = inst.Info.players or {}
-  if inst.ismastershard then inst:ListenForEvent("cycleschanged", DoAnnounce) end
-  inst:ListenForEvent("cycleschanged", clearworld)
+  inst:ListenForEvent("ms_cyclecomplete", DoAnnounce)
+  inst:ListenForEvent("ms_setseason",OnClearMap)
   inst.OnSave_old = inst.OnSave
   inst.OnSave = OnSave
   inst.OnLoad_old = inst.OnLoad
@@ -730,6 +761,7 @@ AddComponentPostInit("playerspawner",function(PlayerSpawner,inst)
   inst:ListenForEvent("ms_playerleft", Onplayerleft)
   inst:ListenForEvent("ms_becameghost",Onbecameghost)
   inst:ListenForEvent("ms_respawnedfromghost",Onrespawnedfromghost)
+  inst:ListenForEvent("ms_cyclecomplete", CheckPlayer)
 end)
 ----回血设置
 for _,v in pairs({"knight","bishop","rook", "minotaur", "lightninggoat"}) do

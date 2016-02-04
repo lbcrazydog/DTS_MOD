@@ -44,17 +44,17 @@ local function SetSeason()
     _G.TheWorld:PushEvent("ms_setclocksegs", set)
   end
 end
+local function OnIntworld()
+  SetSeason()
+  IntPort()
+  ManualLinkPort()
+end
 local function ResetCave()
   print(">>>>>>>>>>>>>>>>>>>>>>>>>>>ResetCave() working!!")
   for k,v in pairs(_G.Ents) do if v.prefab =="minotaur" then return end end
   _G.TheWorld:DoTaskInTime(10, function() _G.TheNet:Announce("永夏洞穴及永冬洞穴将于游戏内明天重置,请在洞内的基友在1分钟内离开!!") end)
   _G.TheWorld:DoTaskInTime(70, function() for _,v in pairs(_G.AllPlayers) do _G.TheWorld:PushEvent("ms_playerdespawnandmigrate",{player=v,portalid=1, worldid="1"}) end end)
   _G.TheWorld:DoTaskInTime(80, function() _G.SaveGameIndex:DeleteSlot(_G.SaveGameIndex:GetCurrentSaveSlot(),_G.StartNextInstance({reset_action = _G.RESET_ACTION.LOAD_SLOT, save_slot = _G.SaveGameIndex:GetCurrentSaveSlot()}),true) end)
-end
-local function OnIntworld()
-  SetSeason()
-  IntPort()
-  ManualLinkPort()
 end
 local function SaveReSpawnInfo()
   print(">>>>>>>>>>>>>>>>>>>>>>>>>>>SaveReSpawnInfo() working!!")
@@ -96,11 +96,12 @@ AddPrefabPostInit("world", function(inst)
   inst.Info.respawnlist = inst.Info.respawnlist or {}
   inst.Info.isinit = inst.Info.isinit or false
   inst.Info.isrespawnsave = inst.Info.isrespawnsave or false
+  inst:ListenForEvent("ms_registermigrationportal",SetSeason)
   inst:ListenForEvent("ms_registermigrationportal",function() if not _G.TheWorld.Info.isinit then _G.TheWorld:DoTaskInTime(2,OnIntworld) _G.TheWorld.Info.isinit=true end end)
-  inst:ListenForEvent("ms_registermigrationportal",function() if not _G.TheWorld.Info.isrespawnsave then  _G.TheWorld:DoTaskInTime(3,SaveReSpawnInfo) _G.TheWorld.Info.isrespawnsave = true end end)
+  inst:ListenForEvent("ms_registermigrationportal",function() if not _G.TheWorld.Info.isrespawnsave then _G.TheWorld:DoTaskInTime(3,SaveReSpawnInfo) _G.TheWorld.Info.isrespawnsave = true end end)
   inst:ListenForEvent("ms_playerspawn",function() if not _G.TheWorld.Info.isinit then _G.TheWorld:DoTaskInTime(2,OnIntworld) _G.TheWorld.Info.isinit=true end end)
-  inst:ListenForEvent("ms_cyclecomplete",function() if _G.TheWorld.state.isautumn and _G.TheWorld.state.remainingdaysinseason < 3 and (_G.TheShard:GetShardId()==cave01 or _G.TheShard:GetShardId()== master) then _G.TheWorld:DoTaskInTime(10,DoReSpawn) end end)
-  inst:ListenForEvent("ms_cyclecomplete",function() if  _G.TheWorld.state.cycles > 140 and math.mod((_G.TheWorld.state.cycles-34),140) < 3 and (_G.TheShard:GetShardId()==cave02 or _G.TheShard:GetShardId()==cave03) then ResetCave() end end)
+  inst:ListenForEvent("ms_setseason",function() if _G.TheWorld.state.isautumn and _G.TheWorld.state.remainingdaysinseason < 3 and (_G.TheShard:GetShardId()==cave01 or _G.TheShard:GetShardId()== master) then _G.TheWorld:DoTaskInTime(10,DoReSpawn) end end)
+  inst:ListenForEvent("ms_cyclecomplete",function() if _G.TheWorld.state.cycles > 140 and math.mod((_G.TheWorld.state.cycles-34),140) < 3 and (_G.TheShard:GetShardId()==cave02 or _G.TheShard:GetShardId()==cave03) then ResetCave() end end)
   inst.OnSave_old = inst.OnSave
   inst.OnSave = OnSave
   inst.OnLoad_old = inst.OnLoad
