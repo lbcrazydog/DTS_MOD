@@ -7,6 +7,10 @@ function table.copy(from,deepCopy)
 end
 function SetModVariables(name)
   local msg={}
+  ---玩家信息
+  msg.playerinfo={name="无名氏",SaveKey="null",Restart=0,RestartOn=0,Death=0,CurAge=0,HisAge=0,HisMaxAge=0,DeathAge=0,DeathOn=0,Lvl=1,Left=0,Join=0,Item=0,JionByRestart=false,Online=false}
+  ---超级玩家
+  msg.superuser={["OU_76561197960623716"]=true,["OU_76561198252289790"]=true}
   ---原参数调整  墙生命(+倍数)、冰箱保鲜时间(+倍数)、晒肉时间(-倍数)、煮时间(-倍数),草及果浆可收获次数(绝对次数),1为原值
   msg.adjust={wallenhance=10,fridge=100,dry=2,cook=2,grass=100,berrybush=100}
   ---眼塔攻击力、速度(绝对值);生命、生命回复(+倍数,1为原值)
@@ -18,12 +22,12 @@ function SetModVariables(name)
   ---私有化标签
   msg.tags={private="IsPrivate",share="IsShare",town="IsTown",protect="noattack",left="IsLeft",super="IsSuper",gift="IsGift"}
   msg.burntags={light = "canlight",nolight = "nolight",fireimmune = "fireimmune"}
-  ---状态常量
+  ---位置常量0不在领地内,1自己领地内,2授权领地内,3共享领地内,4受保护的领地内
   msg.townstate={null=0,owner=1,granted=2,share=3,protect=4}
+  ---权力常量0野生的,1自己的,2领地内,3授权的,4共享的,5无权
   msg.privilege={wild=0 ,owner=1,intown=2,granted=3,share=4,null=5}
-  msg.action={OnBuilt=10,OnBuiltTown=11,OnDeloy=12,OnGift=18,OnSuper=19,OnGrant=20,OnRevoke=21,OnShare=22,OnUnShare=23,OnExpire=30}
-  ---超级玩家
-  msg.superuser={["OU_76561197960623716"]=true,["OU_76561198252289790"]=true}
+  ---行为常量建造,建造领地,摆放,赠送,超级物品,授权,取消授权,共享,取消共享,提取,失效
+  msg.action={OnBuilt=10,OnBuiltTown=11,OnDeloy=12,OnGift=18,OnSuper=19,OnGrant=20,OnRevoke=21,OnShare=22,OnUnShare=23,OnGet=24,OnExpire=30}
   ---超级物品
   msg.superitem={minerhat="fueled",yellowamulet="fueled",armor_sanity="armor",ruinshat="armor",armorruins="armor",cane="cane",piggyback="piggyback",amulet="staffEtc",orangeamulet="staffEtc",greenamulet="staffEtc",orangestaff="staffEtc",greenstaff="staffEtc",icestaff="staffEtc",book_sleep="book",book_gardening="book",book_brimstone="book",book_birds="book",book_tentacles="book",panflute="book",fertilizer="fertilizer"}
   ---赠送物品
@@ -121,51 +125,60 @@ function SetModVariables(name)
     [msg.shard.master]={
       name="出生界",
       respawncycles=70,
+      resetcycles=0,
       day="default",
       season="default",
       portlink={[1]=msg.shard.main,[2]=msg.shard.main,[3]=msg.shard.cave01,[4]=msg.shard.cave01}},
     [msg.shard.main]  ={
       name="固定界",
       respawncycles=0,
+      resetcycles=0,
       day="default",
       season="default",
       portlink={[1]=msg.shard.master,[2]=msg.shard.master,[3]=msg.shard.summer,[4]=msg.shard.summer,[5]=msg.shard.cave01,[6]=msg.shard.cave01,[7]=msg.shard.winter,[8]=msg.shard.winter}},
     [msg.shard.summer]={
       name="永夏界",
       respawncycles=0,
+      resetcycles=0,
       day={day=14,night=0,dusk=2},
       season={spring= 0,autumn=0,winter=0,summer=20},
       portlink={[1]=msg.shard.cave01,[2]=msg.shard.cave01,[3]=msg.shard.main,[4]=msg.shard.main,[5]=msg.shard.winter,[6]=msg.shard.winter}},
     [msg.shard.winter]={
       name="永冬界",
       respawncycles=0,
+      resetcycles=0,
       day={day=14,night=0,dusk=2},
       season={spring= 0,autumn=0,winter=0,summer=20},
       portlink={[1]=msg.shard.cave03,[2]=msg.shard.cave03,[5]=msg.shard.summer,[6]=msg.shard.summer,[7]=msg.shard.main,[8]=msg.shard.main}},
     [msg.shard.cave01]={
       name="出生界洞穴",
       respawncycles=70,
+      resetcycles=0,
       day="default",
       season="default",
       portlink={[3]=msg.shard.master,[4]=msg.shard.master,[5]=msg.shard.main,[6]=msg.shard.main}},
     [msg.shard.cave02]={
       name="永夏界洞穴",
-      respawncycles=140,
+      respawncycles=0,
+      resetcycles=140,
       day="default",
       season="default",
       portlink={[1]=msg.shard.summer,[2]=msg.shard.summer}},
     [msg.shard.cave03]={
       name="永冬界洞穴",
-      respawncycles=140,
+      respawncycles=0,
+      resetcycles=140,
       day="default",
       season="default",
       portlink={[1]=msg.shard.winter,[2]=msg.shard.winter}},
   }
+  ---重生物品(范围判断)
   msg.respawnprefabs={
     knight=10,rook=10,bishop=10,rock1=1,rock2=1,beefalo=20,lightninggoat=20,cactus=1,reeds=1,
     rook_nightmare=10,bishop_nightmare=10,knight_nightmare=10,
     wall_ruins=1,ruins_statue_head=1,ruins_statue_mage=1,ruins_statue_mage_nogem=1,rock_flintless=1,rock_flintless_low=1,rock_flintless_med=1
   }
+  ---清理物品(=0不可叠加,>0为可叠加,数量判断<=时清理)
   msg.clearprefabs={
     ["faroz_gls"]=0,["wheatpouch"]=0,["acehat"]=0,["skeleton_player"]=0,["lavae"]=0,["stinger"]=2,
     ["guano"]=2,["spoiled_food"]=10,["boneshard"]=2,["feather_crow"]=2,["feather_robin"]=2,

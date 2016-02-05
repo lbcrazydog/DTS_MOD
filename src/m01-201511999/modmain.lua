@@ -16,14 +16,14 @@ local _SP=SetModVariables("superuser")
 local _AJ=SetModVariables("adjust")
 local _ET=SetModVariables("eyeturret")
 local _SN=SetModVariables("seedsrange")
----local _TAG=SetModVariables("tags")
 local _InTown=SetModVariables("townstate")
 local _Privilege=SetModVariables("privilege")
 local _ActionType=SetModVariables("action")
 local _BurnTags=SetModVariables("burntags")
 local _QuickPickPrefab=SetModVariables("quickpick")
-local _ClearPrefabs = SetModVariables("clearprefabs")
-local _ComDist = SetModVariables("cmddis")
+local _ClearPrefabs=SetModVariables("clearprefabs")
+local _ComDist=SetModVariables("cmddis")
+local _PlayerInfo=SetModVariables("playerinfo")
 
 local GrantSuperPlayer=false ---超级是否有特权
 local ToAddTags  = "Add"        --需添加标签
@@ -66,8 +66,7 @@ local function GetOnlinePlayerById(id)
     if p.userid==id then return p,i end
   end
 end
-local _DimInfo={name="无名氏",SaveKey="null",Restart=0,Death=0,CurAge=0,HisAge=0,HisMaxAge=0,DeathAge=0,DeathOn=0,Lvl=1,Left=0,Join=0,Item=0,JionByRestart=false,Online=false}
-local function getplayerlvl(player)
+local function GetPlayerLvl(player)
   local lvl = ((player.Info.HisAge + player.components.age:GetAge())/480+1)/(player.Info.Restart > 4 and (player.Info.Restart-3) or 1) - player.Info.Death*2
   return  lvl > 1 and math.floor(lvl) or 1
 end
@@ -79,24 +78,24 @@ local function getplayerinfo(player)
     curinfo.ageday = math.floor((player.Info.HisAge + player.components.age:GetAge())/480+1)
     curinfo.maxageday = math.floor(math.max(player.Info.HisMaxAge,player.components.age:GetAge())/480+1)
     curinfo.deathageday = math.floor(player.Info.DeathAge/480)
-    curinfo.lvl = getplayerlvl(player)
+    curinfo.lvl = GetPlayerLvl(player)
     return curinfo
   end
 end
-local function playerdesc(player)
+local function GetPlayerDesc(player)
   local msg = getplayerinfo(player)
   if msg then
     return player.name.."\n等 级: "..tostring(msg.lvl).." [生存/(重生-3)-死亡*2]".."\n累 计  生 存 天 数 : "..tostring(msg.ageday).."\n最 长  生 存 天 数 : "..tostring(msg.maxageday).."\n累 计  重 生 次 数 : "..tostring(msg.restart).."\n累 计  死 亡 次 数 : "..tostring(msg.death).."\n累 计  死 亡 天 数 : "..tostring(msg.deathageday)
   end
 end
 local function GiftRemoveChecker(player)
-  if player.Info.Item > 0 and getplayerlvl(player) < 30 then
+  if player.Info.Item > 0 and GetPlayerLvl(player) < 30 then
     for _,v in pairs(_G.TheSim:FindEntities(0,0,0,10000,{IsPrivate,IsGift,OwnerID..player.userid})) do v:Remove() end
     player.Info.Item = 0
   end
 end
 local function OnGiftCheck(player)
-  local lvl = math.floor((getplayerlvl(player)-10)/20)
+  local lvl = math.floor((GetPlayerLvl(player)-10)/20)
   local check = lvl < 1 and 0 or (lvl > 5 and 5 or lvl)
   if player.Info.Item ~= check then
     if check == 0 then
@@ -112,7 +111,7 @@ local function OnGiftCheck(player)
 end
 local function SyncInfo(inst,player,event)
   if player and player.components and player.Info then
-    inst.Info.players[player.userid] = inst.Info.players[player.userid] or table.copy(_DimInfo,true)
+    inst.Info.players[player.userid] = inst.Info.players[player.userid] or table.copy(_PlayerInfo,true)
     if event == "ms_playerjoined" then
       table.assign(player.Info,inst.Info.players[player.userid])
     elseif event == "ms_playerdespawnanddelete" or event == "ms_playerleft" then
@@ -125,6 +124,7 @@ local function SyncInfo(inst,player,event)
   end
 end
 local function SaveHisInfo(player)
+  player.Info.RestartOn = _G.os.time()
   player.Info.Restart = player.Info.Restart + 1
   player.Info.HisAge = player.Info.HisAge + player.components.age:GetAge()
   player.Info.HisMaxAge = math.max(player.Info.HisMaxAge,player.components.age:GetAge())
@@ -245,7 +245,7 @@ local function SetInfo(inst,player,actiontype)
         inst.Info[ToAddTags][GrantID]   = {}
         if inst.prefab=="arrowsign_post" or inst.prefab=="arrowsign_panel" then
           inst.Info[Desc] = table.concatn(_CMD,true,_CMD.userlist)
-        elseif inst.prefab ~= "homesign" then
+        else
           inst.Info[Desc] = "建 造 者: "..(player:GetDisplayName() or "无 名 氏")
         end
       end
@@ -268,6 +268,9 @@ local function SetInfo(inst,player,actiontype)
       end
     elseif actiontype==_ActionType.OnRevoke then
       inst.Info[ToAddTags][GrantID] = {}
+    elseif actiontype==_ActionType.OnGet then
+      inst.Info[ToAddTags][OwnerID]   = OwnerID..player.userid
+      inst.Info[Desc] = inst.Info[Desc] and inst.Info[Desc]..("\n所 有 者: "..(player:GetDisplayName() or "无 名 氏")) or nil
     end
   elseif actiontype==_ActionType.OnExpire and type(player)=="string" then
     inst.Info[ToAddTags][OwnerID] = nil
@@ -371,9 +374,7 @@ local function GetDesc(inst, viewer)
   return not viewer:HasTag("playerghost") and inst.Info.Desc or nil
 end
 local function SetDesc(inst)
-  if inst.components.inspectable then
-    inst.components.inspectable.getspecialdescription = GetDesc
-  end
+  if inst.components.inspectable and inst.prefab ~= "homesign" then inst.components.inspectable.getspecialdescription = GetDesc end
 end
 local function AddTaskTalk(inst,message,delay)
   if inst and inst.components.talker then
@@ -448,34 +449,26 @@ local function OnLs(player)
   AddTaskTalk(player,_MSGT.lsfail)
 end
 local function OnInfo(player)
-  if player and player.Info then
-    AddTaskTalk(player,playerdesc(player))
-  end
+  if player and player.Info then AddTaskTalk(player,GetPlayerDesc(player)) end
 end
 local function OnGather(inst)
-  if inst.Info and inst.Info.Item > 0 and playerlvl(inst) >= 30 then
+  if inst.Info and inst.Info.Item > 0 and GetPlayerLvl(inst) >= 30 then
     local x,y,z = inst.Transform:GetWorldPosition()
     local num = 0
-    for _,v in pairs(_G.TheSim:FindEntities(x,0,z,10000,{"M_Private","isgift","ownerid_"..inst.userid})) do
+    for _,v in pairs(_G.TheSim:FindEntities(x,0,z,10000,{IsGift,OwnerID..inst.userid})) do
       local tx,ty,tz = v.Transform:GetWorldPosition()
       if (x-tx)^2 + (z-tz)^2 > 16 then v.Transform:SetPosition(x,0,z) num = num+1 end
     end
     AddTaskTalk(inst,num > 0 and ("曾经有 "..tostring(num).._MSGT.gather) or _MSGT.gatherfail)
   end
 end
-local _PlayerList = {}
 local function OnRestart(inst)
-  local checktime = inst.userid and _PlayerList[inst.userid] and _PlayerList[inst.userid].restartT or 0
-  if _G.os.time() > checktime then
+  if _G.os.time() > (inst.Info.RestartOn + 30*60) then
     if inst.components and inst.components.inventory then inst.components.inventory:DropEverything(false,false) end
     _G.TheWorld:DoTaskInTime(0.5,function(inst) TheNet:Announce(inst:GetDisplayName().._MSGT.restart) end)
-    _PlayerList[inst.userid] = _PlayerList[inst.userid] or {}
-    _PlayerList[inst.userid].restartT = _G.os.time() + 30*60
     if inst:IsValid() then _G.TheWorld:PushEvent("ms_playerdespawnanddelete",inst) end
-    return true
   end
   AddTaskTalk(inst,inst:GetDisplayName().._MSGT.restartfail,1)
-  return false
 end
 local function OnSaveKey(inst,pwd)
   if string.IsValidKey(pwd) and inst.userid and _G.TheWorld.Info.players[inst.userid] then
@@ -495,14 +488,12 @@ local function OnGetByKey(inst,pwd)
     for k,v in pairs(_G.TheWorld.Info.players) do if v.SaveKey==pwd and k~=inst.userid then ownername =v.name owerid=k break end end
     if owerid ~= nil then
       local num = 0
-      for _,s in pairs(TheSim:FindEntities(0,0,0,10000,{"M_Private","ownerid_"..owerid},{"isgift","INLIMBO"})) do
+      for _,s in pairs(TheSim:FindEntities(0,0,0,10000,{IsPrivate,OwnerID..owerid},{IsGift,"INLIMBO"})) do
+        SetInfo(s,inst,_ActionType.OnGet)
         s:RemoveTag("ownerid_"..owerid)
         s:AddTag("ownerid_"..inst.userid)
-        s:AddTag("ownerid_"..inst.userid)
-        s.Info.AddTags[OwnerID] = OwnerID..inst.userid
       end
       _G.TheWorld.Info.players[inst.userid].SaveKey = "null"
-      inst.Info.SaveKey = "null"
       AddTaskTalk(inst,"获得"..ownername.."的物权共计"..tostring(num).."处")
     end
   end
@@ -732,14 +723,14 @@ local function OnLoad(inst,data)
 end
 AddPrefabPostInit("multiplayer_portal",function(inst) inst:AddTag("multiplayer_portal") end)
 AddPlayerPostInit(function(inst)
-  inst.Info = inst.Info or table.copy(_DimInfo, true)
+  inst.Info = inst.Info or table.copy(_PlayerInfo, true)
   if inst.components.builder then
     if inst.components.builder.onBuild then
       inst.components.builder.onBuild_old = inst.components.builder.onBuild
     end
     inst.components.builder.onBuild = OnBuild_new
   end
-  if inst.components.inspectable then inst.components.inspectable.getspecialdescription = playerdesc end
+  if inst.components.inspectable then inst.components.inspectable.getspecialdescription = GetPlayerDesc end
   inst.OnSave_old = inst.OnSave
   inst.OnSave = OnSave
   inst.OnLoad_old = inst.OnLoad

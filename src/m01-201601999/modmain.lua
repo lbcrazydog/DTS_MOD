@@ -1,7 +1,7 @@
 modimport("wmessage.lua")
 local _G = GLOBAL
 local shard=SetModVariables("shard")
-local MapsLink=SetModVariables("mapsinfo")
+local MapsInfo=SetModVariables("mapsinfo")
 local _ToReSpawnPrefabs=SetModVariables("respawnprefabs")
 local master,main,summer,winter,cave01,cave02,cave03 =shard.master,shard.main,shard.summer,shard.winter,shard.cave01,shard.cave02,shard.cave03
 local function TpyePortLink()
@@ -9,21 +9,21 @@ local function TpyePortLink()
 end
 local function IntPort()
   local ports,num,worldid = {},1,_G.TheShard:GetShardId()
-  if MapsLink[worldid] then
+  if MapsInfo[worldid] then
     for k,v in pairs(_G.Ents) do if table.contains({"cave_entrance","cave_entrance_open","cave_exit"},v.prefab) then ports[k] = num num = num + 1 end end
-    if num > 10 then for n,p in pairs(ports) do if MapsLink[worldid].portlink[p] then _G.Ents[n].components.worldmigrator:SetID(p) else _G.Ents[n]:Remove() end end end
+    if num > 10 then for n,p in pairs(ports) do if MapsInfo[worldid].portlink[p] then _G.Ents[n].components.worldmigrator:SetID(p) else _G.Ents[n]:Remove() end end end
   end
 end
 local function ManualLinkPort()
   local worldid = _G.TheShard:GetShardId()
-  if MapsLink[worldid] then
+  if MapsInfo[worldid] then
     local ports = {}
     for k,v in pairs(_G.Ents) do if table.contains({"cave_entrance","cave_entrance_open","cave_exit"},v.prefab) then ports[k] = v end end
     for n,p in pairs(ports) do
       local pid = p.components.worldmigrator.id
-      if pid and MapsLink[worldid].portlink[pid] then
-        p.components.worldmigrator:SetDestinationWorld(MapsLink[worldid].portlink[pid],true)
-        p.components.worldmigrator:SetReceivedPortal(MapsLink[worldid].portlink[pid],pid)
+      if pid and MapsInfo[worldid].portlink[pid] then
+        p.components.worldmigrator:SetDestinationWorld(MapsInfo[worldid].portlink[pid],true)
+        p.components.worldmigrator:SetReceivedPortal(MapsInfo[worldid].portlink[pid],pid)
       end
     end
     TpyePortLink()
@@ -31,16 +31,16 @@ local function ManualLinkPort()
 end
 local function SetSeason()
   local worldid = _G.TheShard:GetShardId()
-  if MapsLink[worldid] and type(MapsLink[worldid].season)=="table" then
+  if MapsInfo[worldid] and type(MapsInfo[worldid].season)=="table" then
     for _,v in pairs({"spring","autumn","winter","summer"}) do
-      if type(MapsLink[worldid].season[v])=="number" then
-        _G.TheWorld:PushEvent("ms_setseasonlength",{season = v, length = MapsLink[worldid].season[v]})
+      if type(MapsInfo[worldid].season[v])=="number" then
+        _G.TheWorld:PushEvent("ms_setseasonlength",{season = v, length = MapsInfo[worldid].season[v]})
       end
     end
   end
-  if MapsLink[worldid] and type(MapsLink[worldid].day)=="table" then
+  if MapsInfo[worldid] and type(MapsInfo[worldid].day)=="table" then
     local set = {}
-    table.assign(set,MapsLink[worldid].day,{"day","night","dusk"})
+    table.assign(set,MapsInfo[worldid].day,{"day","night","dusk"})
     _G.TheWorld:PushEvent("ms_setclocksegs", set)
   end
 end
@@ -52,7 +52,7 @@ end
 local function ResetCave()
   print(">>>>>>>>>>>>>>>>>>>>>>>>>>>ResetCave() working!!")
   for k,v in pairs(_G.Ents) do if v.prefab =="minotaur" then return end end
-  _G.TheWorld:DoTaskInTime(10, function() _G.TheNet:Announce("永夏洞穴及永冬洞穴将于游戏内明天重置,请在洞内的基友在1分钟内离开!!") end)
+  _G.TheWorld:DoTaskInTime(10, function() _G.TheNet:Announce(_G.TheWorld.Info.name.."将重置,请在洞内的基友在1分钟内离开!!") end)
   _G.TheWorld:DoTaskInTime(70, function() for _,v in pairs(_G.AllPlayers) do _G.TheWorld:PushEvent("ms_playerdespawnandmigrate",{player=v,portalid=1, worldid="1"}) end end)
   _G.TheWorld:DoTaskInTime(80, function() _G.SaveGameIndex:DeleteSlot(_G.SaveGameIndex:GetCurrentSaveSlot(),_G.StartNextInstance({reset_action = _G.RESET_ACTION.LOAD_SLOT, save_slot = _G.SaveGameIndex:GetCurrentSaveSlot()}),true) end)
 end
@@ -68,7 +68,7 @@ local function SaveReSpawnInfo()
 end
 local function DoReSpawn()
   print(">>>>>>>>>>>>>>>>>>>>>>>>>>>DoReSpawn() working!!")
-  if _G.TheShard:GetShardId()==cave01 then for k,v in pairs(_G.Ents) do if v.prefab =="minotaur" then return end end end
+  if _G.TheWorld:HasTag("cave") then for _,v in pairs(_G.Ents) do if v.prefab =="minotaur" then return end end end
   if _G.TheWorld.Info and _G.TheWorld.Info.respawnlist then
     local torespawn = {}
     for _,v in pairs(_G.TheWorld.Info.respawnlist) do
@@ -80,7 +80,7 @@ local function DoReSpawn()
     end
     for _,v in pairs(torespawn) do _G.SpawnPrefab(v.prefab).Transform:SetPosition(v.x,0,v.z) end
     print(">>>>>>>>>>>>>>>>>>>>>>>>>>>DoReSpawn() has done!!")
-    _G.TheNet:Announce(MapsLink[_G.TheShard:GetShardId()].name.."矿石等资源已重生 !! 共计 : "..tostring(#torespawn))
+    _G.TheNet:Announce(_G.TheWorld.Info.name.."矿石等资源已重生 !! 共计 : "..tostring(#torespawn))
   end
 end
 local function OnSave(inst,data)
@@ -97,11 +97,37 @@ AddPrefabPostInit("world", function(inst)
   inst.Info.isinit = inst.Info.isinit or false
   inst.Info.isrespawnsave = inst.Info.isrespawnsave or false
   inst:ListenForEvent("ms_registermigrationportal",SetSeason)
-  inst:ListenForEvent("ms_registermigrationportal",function() if not _G.TheWorld.Info.isinit then _G.TheWorld:DoTaskInTime(2,OnIntworld) _G.TheWorld.Info.isinit=true end end)
-  inst:ListenForEvent("ms_registermigrationportal",function() if not _G.TheWorld.Info.isrespawnsave then _G.TheWorld:DoTaskInTime(3,SaveReSpawnInfo) _G.TheWorld.Info.isrespawnsave = true end end)
-  inst:ListenForEvent("ms_playerspawn",function() if not _G.TheWorld.Info.isinit then _G.TheWorld:DoTaskInTime(2,OnIntworld) _G.TheWorld.Info.isinit=true end end)
-  inst:ListenForEvent("ms_setseason",function() if _G.TheWorld.state.isautumn and _G.TheWorld.state.remainingdaysinseason < 3 and (_G.TheShard:GetShardId()==cave01 or _G.TheShard:GetShardId()== master) then _G.TheWorld:DoTaskInTime(10,DoReSpawn) end end)
-  inst:ListenForEvent("ms_cyclecomplete",function() if _G.TheWorld.state.cycles > 140 and math.mod((_G.TheWorld.state.cycles-34),140) < 3 and (_G.TheShard:GetShardId()==cave02 or _G.TheShard:GetShardId()==cave03) then ResetCave() end end)
+  inst:ListenForEvent("ms_registermigrationportal",function()
+    if not _G.TheWorld.Info.isinit then
+      _G.TheWorld:DoTaskInTime(2,OnIntworld)
+      _G.TheWorld.Info.isinit=true
+    end
+  end)
+  inst:ListenForEvent("ms_registermigrationportal",function()
+    if not _G.TheWorld.Info.isrespawnsave then
+      _G.TheWorld:DoTaskInTime(3,SaveReSpawnInfo)
+      _G.TheWorld.Info.isrespawnsave = true
+      _G.TheWorld.Info.name = MapsInfo[_G.TheShard:GetShardId()].name
+      _G.TheWorld.Info.respawncycles = MapsInfo[_G.TheShard:GetShardId()].respawncycles or 0
+      _G.TheWorld.Info.resetcycles = MapsInfo[_G.TheShard:GetShardId()].resetcycles or 0
+    end
+  end)
+  inst:ListenForEvent("ms_playerspawn",function()
+    if not _G.TheWorld.Info.isinit then
+      _G.TheWorld:DoTaskInTime(2,OnIntworld)
+      _G.TheWorld.Info.isinit=true
+    end
+  end)
+  inst:ListenForEvent("ms_setseason",function()
+    if _G.TheWorld.Info.respawncycles > 0 and _G.TheWorld.state.isautumn and _G.TheWorld.state.remainingdaysinseason<2 then
+      _G.TheWorld:DoTaskInTime(10,DoReSpawn)
+    end
+  end)
+  inst:ListenForEvent("ms_cyclecomplete",function()
+    if _G.TheWorld.Info.resetcycles > 0 and math.mod(_G.TheWorld.state.cycles,_G.TheWorld.Info.resetcycles)==0 and _G.TheWorld.state.cycles > 140 then
+      ResetCave()
+    end
+  end)
   inst.OnSave_old = inst.OnSave
   inst.OnSave = OnSave
   inst.OnLoad_old = inst.OnLoad
