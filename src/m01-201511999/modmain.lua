@@ -24,6 +24,7 @@ local _QuickPickPrefab=SetModVariables("quickpick")
 local _ClearPrefabs=SetModVariables("clearprefabs")
 local _ComDist=SetModVariables("cmddis")
 local _PlayerInfo=SetModVariables("playerinfo")
+local _SuperItem=SetModVariables("superitem")
 
 local GrantSuperPlayer=false ---超级是否有特权
 local ToAddTags  = "Add"        --需添加标签
@@ -67,7 +68,7 @@ local function GetOnlinePlayerById(id)
   end
 end
 local function GetPlayerLvl(player)
-  local lvl = ((player.Info.HisAge + player.components.age:GetAge())/480+1)/(player.Info.Restart > 4 and (player.Info.Restart-3) or 1) - player.Info.Death*2
+  local lvl = ((player.Info.HisAge + player.components.age:GetAge())/480+1)/(player.Info.Restart > 4 and (player.Info.Restart-3) or 1)-player.Info.Death-player.Info.DeathAge/240
   return  lvl > 1 and math.floor(lvl) or 1
 end
 local function getplayerinfo(player)
@@ -85,114 +86,9 @@ end
 local function GetPlayerDesc(player)
   local msg = getplayerinfo(player)
   if msg then
-    return player.name.."\n等 级: "..tostring(msg.lvl).." [生存/(重生-3)-死亡*2]".."\n累 计  生 存 天 数 : "..tostring(msg.ageday).."\n最 长  生 存 天 数 : "..tostring(msg.maxageday).."\n累 计  重 生 次 数 : "..tostring(msg.restart).."\n累 计  死 亡 次 数 : "..tostring(msg.death).."\n累 计  死 亡 天 数 : "..tostring(msg.deathageday)
+    return player.name.."\n等 级: "..tostring(msg.lvl).." \n生存天数/(重生-3)-死亡次数-死亡天数*2".."\n累 计  生 存 天 数 : "..tostring(msg.ageday).."\n最 长  生 存 天 数 : "..tostring(msg.maxageday).."\n累 计  重 生 次 数 : "..tostring(msg.restart).."\n累 计  死 亡 次 数 : "..tostring(msg.death).."\n累 计  死 亡 天 数 : "..tostring(msg.deathageday)
   end
 end
-local function GiftRemoveChecker(player)
-  if player.Info.Item > 0 and GetPlayerLvl(player) < 30 then
-    for _,v in pairs(_G.TheSim:FindEntities(0,0,0,10000,{IsPrivate,IsGift,OwnerID..player.userid})) do v:Remove() end
-    player.Info.Item = 0
-  end
-end
-local function OnGiftCheck(player)
-  local lvl = math.floor((GetPlayerLvl(player)-10)/20)
-  local check = lvl < 1 and 0 or (lvl > 5 and 5 or lvl)
-  if player.Info.Item ~= check then
-    if check == 0 then
-      GiftRemoveChecker(player)
-    elseif player.Info.Item == 0 then
-      DoGiftGive(player)
-    elseif player.Info.Item > check then
-      DoGiftDesgrade(player,check)
-    elseif player.Info.Item < check then
-      DoGiftUpgrade(player,check)
-    end
-  end
-end
-local function SyncInfo(inst,player,event)
-  if player and player.components and player.Info then
-    inst.Info.players[player.userid] = inst.Info.players[player.userid] or table.copy(_PlayerInfo,true)
-    if event == "ms_playerjoined" then
-      table.assign(player.Info,inst.Info.players[player.userid])
-    elseif event == "ms_playerdespawnanddelete" or event == "ms_playerleft" then
-      table.assign(inst.Info.players[player.userid],player.Info)
-    elseif event == "ms_becameghost" then
-      table.assign(inst.Info.players[player.userid],player.Info,{"DeathOn","Death"})
-    elseif event == "ms_respawnedfromghost" then
-      table.assign(inst.Info.players[player.userid],player.Info,{"DeathOn","DeathAge"})
-    end
-  end
-end
-local function SaveHisInfo(player)
-  player.Info.RestartOn = _G.os.time()
-  player.Info.Restart = player.Info.Restart + 1
-  player.Info.HisAge = player.Info.HisAge + player.components.age:GetAge()
-  player.Info.HisMaxAge = math.max(player.Info.HisMaxAge,player.components.age:GetAge())
-  player.Info.DeathAge = player.Info.DeathAge + (player.Info.DeathOn == 0 and 0 or (player.components.age:GetAge() - player.Info.DeathOn))
-  player.Info.DeathOn = 0
-  player.Info.Lvl = (player.Info.HisAge/480+1)/(player.Info.Restart > 3 and (player.Info.Restart-3) or 1) - player.Info.Death*2
-  player.Info.Lvl = player.Info.Lvl > 1 and math.floor(player.Info.Lvl) or 1
-end
-local function Onplayerjoined(inst,player)
-  SyncInfo(inst,player,"ms_playerjoined")
-end
-local function Onplayerdespawnanddelete(inst,player)
-  SaveHisInfo(player)
-  SyncInfo(inst,player,"ms_playerdespawnanddelete")
-end
-local function Onplayerleft(inst,player)
-  SyncInfo(inst,player,"ms_playerdespawnanddelete")
-  GiftRemoveChecker(player)
-end
-local function Onbecameghost(inst,player)
-  player.Info.Death = player.Info.Death + 1
-  player.Info.DeathOn = player.components.age:GetAge()
-  SyncInfo(inst,player,"ms_becameghost")
-end
-local function Onrespawnedfromghost(inst,player)
-  player.Info.DeathAge = player.Info.DeathAge + player.components.age:GetAge() - player.Info.DeathOn
-  player.Info.DeathOn = 0
-  SyncInfo(inst,player,"ms_respawnedfromghost")
-end
-local function SpawnGift(player,prefabs)
-  for _,v in pairs(prefabs) do
-    local gift = _G.SpawnPrefab(v)
-    SetInfo(gift,player,_ActionType.OnGift)
-    SetGift(gift)
-    gift.Transform:SetPosition(player.Transform:GetWorldPosition())
-  end
-end
-local function SetGift(inst)
-  if inst.prefab == "minerhat" then
-    inst.components.fueled:InitializeFuelLevel(inst.Info.lvl < 4 and (300+600*inst.Info.lvl) or 36000)
-  elseif inst.prefab == "armor_sanity" then
-    inst.components.equippable.ontakedamage = nil
-    inst.components.equippable.dapperness   = 0
-    inst.components.armor:InitCondition(inst.Info.lvl < 4 and (500+500*inst.Info.lvl) or 50000,inst.Info.lvl < 4 and (0.45+0.15*inst.Info.lvl) or 0.95)
-  elseif inst.prefab == "cane" then
-    if inst.components.tool == nil then inst:AddComponent("tool") end
-    inst.components.tool:SetAction(_G.ACTIONS.CHOP,1)
-    if inst.Info.lvl == 2 then
-      inst.components.tool:SetAction(_G.ACTIONS.MINE,1)
-    elseif inst.Info.lvl == 3 then
-      inst.components.weapon:SetDamage(50)
-      inst.components.weapon:SetRange(1)
-    end
-  elseif inst.prefab == "piggyback" then
-    inst.components.equippable.walkspeedmult = 1
-    if inst.components.waterproofer == nil then inst:AddComponent("waterproofer") end
-    inst.components.waterproofer:SetEffectiveness(_G.TUNING.WATERPROOFNESS_LARGE)
-    inst:AddTag("waterproofer")
-    if inst.Info.lvl == 2 then
-      inst.components.equippable.dapperness = _G.TUNING.DAPPERNESS_SMALL
-    elseif inst.Info.lvl == 3 then
-      inst:AddTag("fridge")
-    end
-  elseif inst.prefab == "orangestaff"  or inst.prefab == "greenamulet" then
-    inst.components.finiteuses.Use = function(val) return 0 end
-  end
-end
------------------------------------
 local function HasEntityInRange(x,y,z,radius,musttags,mustoneoftags,notags)
   return table.len(TheSim:FindEntities(x,y,z,radius,musttags,notags,mustoneoftags)) > 0
 end
@@ -238,9 +134,7 @@ local function SetInfo(inst,player,actiontype)
       inst.Info[ToAddTags][IsPrivate] = IsPrivate
       inst.Info[ToAddTags][IsProtect] = IsProtect
       inst.Info[ToAddTags][OwnerID]   = OwnerID..player.userid
-      if actiontype==_ActionType.OnSuper then
-        inst.Info[IsSuper] = IsSuper
-      elseif actiontype==_ActionType.OnBuilt then
+      if actiontype==_ActionType.OnBuilt then
         inst.Info[ToAddTags][IsShare]   = inst.components.container and IsShare or nil
         inst.Info[ToAddTags][GrantID]   = {}
         if inst.prefab=="arrowsign_post" or inst.prefab=="arrowsign_panel" then
@@ -267,9 +161,14 @@ local function SetInfo(inst,player,actiontype)
         end
       end
     elseif actiontype==_ActionType.OnRevoke then
-      inst.Info[ToAddTags][GrantID] = {}
+      inst.Info[ToAddTags][GrantID]= {}
+    elseif actiontype==_ActionType.OnSuper then
+      inst.Info[IsSuper] = IsSuper
+    elseif actiontype==_ActionType.OnGift then
+      inst.Info[ToAddTags][IsGift]=IsGift
+      inst.Info.lvl = math.floor((GetPlayerLvl(p)-10)/20)
     elseif actiontype==_ActionType.OnGet then
-      inst.Info[ToAddTags][OwnerID]   = OwnerID..player.userid
+      inst.Info[ToAddTags][OwnerID]= OwnerID..player.userid
       inst.Info[Desc] = inst.Info[Desc] and inst.Info[Desc]..("\n所 有 者: "..(player:GetDisplayName() or "无 名 氏")) or nil
     end
   elseif actiontype==_ActionType.OnExpire and type(player)=="string" then
@@ -277,11 +176,6 @@ local function SetInfo(inst,player,actiontype)
     inst.Info[ToAddTags][IsShare] = IsShare
     inst.Info[ToAddTags][IsLeft]  = IsLeft
     inst.Info[ToAddTags][SaverID] = SaverID..player
-  elseif actiontype==_ActionType.OnGift and type(player)=="string" then
-    inst.Info[ToAddTags][IsPrivate] = IsPrivate
-    inst.Info[ToAddTags][IsProtect] = IsProtect
-    inst.Info[ToAddTags][OwnerID]   = OwnerID..player.userid
-    inst.Info[ToAddTags][IsGift]    = IsGift
   end
 end
 local function AddTags(inst,tags)
@@ -328,7 +222,6 @@ local function SuperBookTentaclesfn(inst,reader)
   end)
   return true
 end
-local _SuperItem={["minerhat"]="fueled",["yellowamulet"]="fueled",["armor_sanity"]="armor",["ruinshat"]="armor",["armorruins"]="armor",["cane"]="cane",["piggyback"]="piggyback",["amulet"]="staffEtc",["orangeamulet"]="staffEtc",["greenamulet"]="staffEtc",["orangestaff"]="staffEtc",["greenstaff"]="staffEtc",["icestaff"]="staffEtc",["book_sleep"]="book",["book_gardening"]="book",["book_brimstone"]="book",["book_birds"]="book",["book_tentacles"]="book",["panflute"]="book",["fertilizer"]="fertilizer"}
 local function SetSuperItem(inst)
   local item = _SuperItem[inst.prefab]
   if inst.components.fueled and item=="fueled" then
@@ -369,6 +262,117 @@ local function SetSuperItem(inst)
     inst.components.weapon:SetDamage(50)
     inst.components.weapon:SetRange(1)
   end
+end
+local function SetGift(inst)
+  if inst.Info.lvl==0 then inst:Remove() return 0 end
+  if inst.prefab=="minerhat" then
+    inst.components.fueled:InitializeFuelLevel(math.min(600*inst.Info.lvl,1800))
+  elseif inst.prefab == "armor_sanity" then
+    inst.components.equippable.ontakedamage = nil
+    inst.components.equippable.dapperness = 0
+    inst.components.armor:InitCondition(math.min(1000*inst.Info.lvl,3000),math.min((0.45+0.15*inst.Info.lvl),0.9))
+    return inst.Info.lvl
+  elseif inst.prefab == "cane" then
+    if inst.components.tool == nil then
+      inst:AddComponent("tool")
+      inst.components.tool:SetAction(_G.ACTIONS.CHOP)
+      if inst.Info.lvl == 2 then
+        inst.components.tool:SetAction(_G.ACTIONS.MINE)
+      elseif inst.Info.lvl == 3 then
+        inst.components.weapon:SetDamage(50)
+      end
+    else
+      if inst.Info.lvl==1 and inst.components.tool:CanDoAction(_G.ACTIONS.MINE) then
+        inst:RemoveComponent("tool")
+        inst:AddComponent("tool")
+        inst.components.tool:SetAction(_G.ACTIONS.CHOP)
+      elseif inst.Info.lvl==2 and not inst.components.tool:CanDoAction(_G.ACTIONS.MINE) then
+        inst.components.tool:SetAction(_G.ACTIONS.MINE)
+      elseif inst.Info.lvl > 2 then
+        inst.components.weapon:SetDamage(50)
+      end
+    end
+    return inst.Info.lvl
+  elseif inst.prefab == "piggyback" then
+    inst.components.equippable.walkspeedmult = 1
+    if inst.components.waterproofer == nil then inst:AddComponent("waterproofer") end
+    inst.components.waterproofer:SetEffectiveness(_G.TUNING.WATERPROOFNESS_LARGE)
+    inst:AddTag("waterproofer")
+    inst.components.equippable.dapperness = inst.Info.lvl > 1 and _G.TUNING.DAPPERNESS_SMALL or 0
+    if inst.Info.lvl < 3 and inst:HasTag("fridge") then inst:RemoveTag("fridge") end
+    if inst.Info.lvl > 2 and not inst:HasTag("fridge") then inst:AddTag("fridge") end
+    return inst.Info.lvl
+  elseif inst.prefab == "orangestaff" or inst.prefab == "greenamulet" then
+    if inst.Info.lvl < 5 then inst:Remove() return 0 end
+    inst.components.finiteuses.Use = function(val) return 0 end
+    return inst.Info.lvl
+  end
+end
+local function SetGift()
+  for _,p in pairs(_G.AllPlayers) do
+    p.Info.lvl = GetPlayerLvl(p)
+    local giftlvl=math.min(math.floor((p.Info.lvl-10)/20),5)
+    for k,v in pairs(p.Info.Item) do
+      if v > 0 then
+        for _,gift in pairs(_G.TheSim:FindEntities(0,0,0,10000,{IsGift,OwnerID..inst.userid})) do
+          if gift.prefab == k and gift.Info.lvl ~= giftlvl then
+            gift.Info.lvl = giftlvl
+            p.Info.Item[k] = SetGift(gift)
+          end
+        end
+      elseif v==0 and giftlvl > 0 then
+        if (k == "orangestaff" or k == "greenamulet") and giftlvl < 5 then break end
+        local gift = _G.SpawnPrefab(k)
+        SetInfo(gift,p,_ActionType.OnGift)
+        gift.Info.lvl = giftlvl
+        p.Info.Item[k] = SetGift(gift)
+      end
+    end
+  end
+end
+local function SyncInfo(inst,player,event)
+  if player and player.components and player.Info then
+    inst.Info.players[player.userid] = inst.Info.players[player.userid] or table.copy(_PlayerInfo,true)
+    if event == "ms_playerjoined" then
+      inst.Info.players[player.userid].Join = _G.TheWorld.state.cycles
+      inst.Info.players[player.userid].Online = true
+      table.assign(player.Info,inst.Info.players[player.userid])
+    elseif event == "ms_playerdespawnanddelete" or event == "ms_playerleft" then
+      player.Info.Online = false
+      player.Info.Left = _G.TheWorld.state.cycles
+      table.assign(inst.Info.players[player.userid],player.Info)
+    elseif event == "ms_becameghost" then
+      player.Info.Death = player.Info.Death + 1
+      player.Info.DeathOn = player.components.age:GetAge()
+      table.assign(inst.Info.players[player.userid],player.Info,{"DeathOn","Death"})
+    elseif event == "ms_respawnedfromghost" then
+      player.Info.DeathAge = player.Info.DeathAge + player.components.age:GetAge() - player.Info.DeathOn
+      player.Info.DeathOn = 0
+      table.assign(inst.Info.players[player.userid],player.Info,{"DeathOn","DeathAge"})
+    end
+  end
+end
+local function Onplayerjoined(inst,player)
+  SyncInfo(inst,player,"ms_playerjoined")
+end
+local function Onplayerdespawnanddelete(inst,player)
+  player.Info.RestartOn = _G.os.time()
+  player.Info.Restart = player.Info.Restart + 1
+  player.Info.HisAge = player.Info.HisAge + player.components.age:GetAge()
+  player.Info.HisMaxAge = math.max(player.Info.HisMaxAge,player.components.age:GetAge())
+  player.Info.DeathAge = player.Info.DeathAge + (player.Info.DeathOn == 0 and 0 or (player.components.age:GetAge() - player.Info.DeathOn))
+  player.Info.DeathOn = 0
+  player.Info.Lvl = GetPlayerLvl(player)
+  SyncInfo(inst,player,"ms_playerdespawnanddelete")
+end
+local function Onplayerleft(inst,player)
+  SyncInfo(inst,player,"ms_playerleft")
+end
+local function Onbecameghost(inst,player)
+  SyncInfo(inst,player,"ms_becameghost")
+end
+local function Onrespawnedfromghost(inst,player)
+  SyncInfo(inst,player,"ms_respawnedfromghost")
 end
 local function GetDesc(inst, viewer)
   return not viewer:HasTag("playerghost") and inst.Info.Desc or nil
@@ -463,7 +467,7 @@ local function OnGather(inst)
   end
 end
 local function OnRestart(inst)
-  if _G.os.time() > (inst.Info.RestartOn + 30*60) then
+  if inst.Info.RestartOn > 0 and inst.Info.RestartOn < (_G.os.time() - 1800) then
     if inst.components and inst.components.inventory then inst.components.inventory:DropEverything(false,false) end
     _G.TheWorld:DoTaskInTime(0.5,function(inst) TheNet:Announce(inst:GetDisplayName().._MSGT.restart) end)
     if inst:IsValid() then _G.TheWorld:PushEvent("ms_playerdespawnanddelete",inst) end

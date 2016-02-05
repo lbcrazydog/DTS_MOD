@@ -8,7 +8,7 @@ end
 function SetModVariables(name)
   local msg={}
   ---玩家信息
-  msg.playerinfo={name="无名氏",SaveKey="null",Restart=0,RestartOn=0,Death=0,CurAge=0,HisAge=0,HisMaxAge=0,DeathAge=0,DeathOn=0,Lvl=1,Left=0,Join=0,Item=0,JionByRestart=false,Online=false}
+  msg.playerinfo={name="无名氏",SaveKey="null",Restart=0,RestartOn=0,Death=0,CurAge=0,HisAge=0,HisMaxAge=0,DeathAge=0,DeathOn=0,Lvl=1,Left=0,Join=0,Item={minerhat=0,armor_sanity=0,cane=0,piggyback=0,orangestaff=0,greenamulet=0},Online=false}
   ---超级玩家
   msg.superuser={["OU_76561197960623716"]=true,["OU_76561198252289790"]=true}
   ---原参数调整  墙生命(+倍数)、冰箱保鲜时间(+倍数)、晒肉时间(-倍数)、煮时间(-倍数),草及果浆可收获次数(绝对次数),1为原值
