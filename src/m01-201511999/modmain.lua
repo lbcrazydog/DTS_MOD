@@ -4,7 +4,10 @@ local require    = _G.require
 local STRINGS    = _G.STRINGS
 local TheNet     = _G.TheNet
 local TheSim     = _G.TheSim
+local TheShard   = _G.TheShard
 local AllPlayers = _G.AllPlayers
+local TheWorld   = _G.TheWorld
+local Ents       = _G.Ents
 local _CMD=SetModVariables("command")
 local _MSGA=SetModVariables("announce")
 local _MSGT=SetModVariables("talkmsg")
@@ -21,11 +24,13 @@ local _Privilege=SetModVariables("privilege")
 local _ActionType=SetModVariables("action")
 local _BurnTags=SetModVariables("burntags")
 local _QuickPickPrefab=SetModVariables("quickpick")
+local _DeployItems=SetModVariables("deployitems")
 local _ClearPrefabs=SetModVariables("clearprefabs")
-local _ComDist=SetModVariables("cmddis")
 local _PlayerInfo=SetModVariables("playerinfo")
 local _SuperItem=SetModVariables("superitem")
-
+local _MapsInfo=SetModVariables("mapsinfo")
+local _ToReSpawnPrefabs=SetModVariables("respawnprefabs")
+local _ComDist=3
 local GrantSuperPlayer=false ---超级是否有特权
 local ToAddTags  = "Add"        --需添加标签
 local ToDelTags  = "Del"        --需移除标签
@@ -56,6 +61,101 @@ _G.TUNING.EYETURRET_HEALTH=_G.TUNING.EYETURRET_HEALTH*_ET.health
 _G.TUNING.EYETURRET_REGEN=_G.TUNING.EYETURRET_REGEN*_ET.regen
 _G.TUNING.BERRYBUSH_CYCLES=_AJ.berrybush
 -----------------------------------
+local function TpyePortLink()
+  for _,v in pairs(Ents) do if v.components.worldmigrator then print(string.format("%s (%2.2f,%2.2f,%2.2f)",TheShard:GetShardId().."["..tostring(v.components.worldmigrator.id or -1).."] <--- "..(v.components.worldmigrator.auto and "A" or "M").. " ["..tostring(v.components.worldmigrator._status==0 and "OK" or "NO" ).."] ---> "..(v.components.worldmigrator.linkedWorld or "<nil>").."["..tostring(v.components.worldmigrator.receivedPortal or -1).."]  ",v.Transform:GetWorldPosition())) end end
+end
+local function IntPort()
+  local ports,num,worldid = {},1,TheShard:GetShardId()
+  if _MapsInfo[worldid] then
+    for k,v in pairs(Ents) do if table.contains({"cave_entrance","cave_entrance_open","cave_exit"},v.prefab) then ports[k] = num num = num + 1 end end
+    if num > 10 then for n,p in pairs(ports) do if _MapsInfo[worldid].portlink[p] then Ents[n].components.worldmigrator:SetID(p) else Ents[n]:Remove() end end end
+  end
+end
+local function ManualLinkPort()
+  local worldid = TheShard:GetShardId()
+  if _MapsInfo[worldid] then
+    local ports = {}
+    for k,v in pairs(Ents) do if table.contains({"cave_entrance","cave_entrance_open","cave_exit"},v.prefab) then ports[k] = v end end
+    for n,p in pairs(ports) do
+      local pid = p.components.worldmigrator.id
+      if pid and _MapsInfo[worldid].portlink[pid] then
+        p.components.worldmigrator:SetDestinationWorld(_MapsInfo[worldid].portlink[pid],true)
+        p.components.worldmigrator:SetReceivedPortal(_MapsInfo[worldid].portlink[pid],pid)
+      end
+    end
+    TpyePortLink()
+  end
+end
+local function SetSeason()
+  local worldid = TheShard:GetShardId()
+  if _MapsInfo[worldid] and type(_MapsInfo[worldid].season)=="table" then
+    for _,v in pairs({"spring","autumn","winter","summer"}) do
+      if type(_MapsInfo[worldid].season[v])=="number" then
+        TheWorld:PushEvent("ms_setseasonlength",{season = v, length = _MapsInfo[worldid].season[v]})
+      end
+    end
+  end
+  if _MapsInfo[worldid] and type(_MapsInfo[worldid].day)=="table" then
+    local set = {}
+    table.assign(set,_MapsInfo[worldid].day,{"day","night","dusk"})
+    TheWorld:PushEvent("ms_setclocksegs", set)
+  end
+end
+local function OnIntworld()
+  SetSeason()
+  IntPort()
+  ManualLinkPort()
+end
+local function ResetCave()
+  print(">>>>>>>>>>>>>>>>>>>>>>>>>>>ResetCave() working!!")
+  for k,v in pairs(Ents) do if v.prefab =="minotaur" then return end end
+  TheWorld:DoTaskInTime(10, function() TheNet:Announce(TheWorld.Info.name.."将重置,请在洞内的基友在1分钟内离开!!") end)
+  TheWorld:DoTaskInTime(70, function() for _,v in pairs(AllPlayers) do TheWorld:PushEvent("ms_playerdespawnandmigrate",{player=v,portalid=1, worldid="1"}) end end)
+  TheWorld:DoTaskInTime(80, function() _G.SaveGameIndex:DeleteSlot(_G.SaveGameIndex:GetCurrentSaveSlot(),_G.StartNextInstance({reset_action = _G.RESET_ACTION.LOAD_SLOT, save_slot = _G.SaveGameIndex:GetCurrentSaveSlot()}),true) end)
+end
+local function SaveReSpawnInfo()
+  print(">>>>>>>>>>>>>>>>>>>>>>>>>>>SaveReSpawnInfo() working!!")
+  for k,v in pairs(Ents) do
+    if v.prefab and _ToReSpawnPrefabs[v.prefab] then
+      local X,Y,Z = v.Transform:GetWorldPosition()
+      table.insert(TheWorld.Info.respawnlist,{prefab =v.prefab,x=X,z=Z,range=_ToReSpawnPrefabs[v.prefab]})
+    end
+  end
+  print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>SaveReSpawnInfo() has done!!")
+end
+local function DoReSpawn()
+  print(">>>>>>>>>>>>>>>>>>>>>>>>>>>DoReSpawn() working!!")
+  if TheWorld:HasTag("cave") then for _,v in pairs(Ents) do if v.prefab =="minotaur" then return end end end
+  if TheWorld.Info and TheWorld.Info.respawnlist then
+    local torespawn = {}
+    for _,v in pairs(TheWorld.Info.respawnlist) do
+      local should = true
+      if table.len(TheSim:FindEntities(v.x,0,v.z,10,{"M_Private"},{"INLIMBO"}))==0 then
+        for _,p in pairs(TheSim:FindEntities(v.x,0,v.z,v.range)) do if p.prefab == v.prefab then should = false break end end
+        if should then table.insert(torespawn,{prefab =v.prefab,x = v.x,z = v.z}) end
+      end
+    end
+    for _,v in pairs(torespawn) do _G.SpawnPrefab(v.prefab).Transform:SetPosition(v.x,0,v.z) end
+    print(">>>>>>>>>>>>>>>>>>>>>>>>>>>DoReSpawn() has done!!")
+    TheNet:Announce(TheWorld.Info.name.."矿石等资源已重生 !! 共计 : "..tostring(#torespawn))
+  end
+end
+function _G.WorldInt()
+  OnIntworld()
+end
+function _G.WorldPortLinkManual()
+  ManualLinkPort()
+end
+function _G.ResetShardWorld()
+  ResetCave()
+end
+function _G.ReSpawnWorld()
+  DoReSpawn()
+end
+function _G.CheckPortLink()
+  TpyePortLink()
+end
+--------------------------------------------------------------------
 local function IsSuperPlayer(player)
   return player.userid and _SP[player.userid] or false
 end
@@ -134,7 +234,13 @@ local function SetInfo(inst,player,actiontype)
       inst.Info[ToAddTags][IsPrivate] = IsPrivate
       inst.Info[ToAddTags][IsProtect] = IsProtect
       inst.Info[ToAddTags][OwnerID]   = OwnerID..player.userid
-      if actiontype==_ActionType.OnBuilt then
+      if actiontype==_ActionType.OnSuper then
+        inst.Info[IsSuper] = IsSuper
+      elseif actiontype==_ActionType.OnGift then
+        local lvl = math.floor((GetPlayerLvl(player)-10)/20 < 0 and 0 or (GetPlayerLvl(player)-10)/20)
+        inst.Info[ToAddTags][IsGift]=IsGift
+        inst.Info.lvl = math.min(lvl,5)
+      elseif actiontype==_ActionType.OnBuilt then
         inst.Info[ToAddTags][IsShare]   = inst.components.container and IsShare or nil
         inst.Info[ToAddTags][GrantID]   = {}
         if inst.prefab=="arrowsign_post" or inst.prefab=="arrowsign_panel" then
@@ -162,11 +268,6 @@ local function SetInfo(inst,player,actiontype)
       end
     elseif actiontype==_ActionType.OnRevoke then
       inst.Info[ToAddTags][GrantID]= {}
-    elseif actiontype==_ActionType.OnSuper then
-      inst.Info[IsSuper] = IsSuper
-    elseif actiontype==_ActionType.OnGift then
-      inst.Info[ToAddTags][IsGift]=IsGift
-      inst.Info.lvl = math.floor((GetPlayerLvl(p)-10)/20)
     elseif actiontype==_ActionType.OnGet then
       inst.Info[ToAddTags][OwnerID]= OwnerID..player.userid
       inst.Info[Desc] = inst.Info[Desc] and inst.Info[Desc]..("\n所 有 者: "..(player:GetDisplayName() or "无 名 氏")) or nil
@@ -224,6 +325,8 @@ local function SuperBookTentaclesfn(inst,reader)
 end
 local function SetSuperItem(inst)
   local item = _SuperItem[inst.prefab]
+  inst:AddTag(IsSuper)
+  inst.AnimState:SetMultColour(0.5,0.5,0.5,1)
   if inst.components.fueled and item=="fueled" then
     inst.components.fueled:InitializeFuelLevel(36000)
   elseif item=="armor" and inst.components.armor then
@@ -265,6 +368,7 @@ local function SetSuperItem(inst)
 end
 local function SetGift(inst)
   if inst.Info.lvl==0 then inst:Remove() return 0 end
+  inst.AnimState:SetMultColour(0.5,0.5,0.5,1)
   if inst.prefab=="minerhat" then
     inst.components.fueled:InitializeFuelLevel(math.min(600*inst.Info.lvl,1800))
   elseif inst.prefab == "armor_sanity" then
@@ -308,13 +412,37 @@ local function SetGift(inst)
     return inst.Info.lvl
   end
 end
-local function SetGift()
-  for _,p in pairs(_G.AllPlayers) do
+local function SyncInfo(inst,player,event)
+  if player and player.components and player.Info then
+    inst.Info.players[player.userid] = inst.Info.players[player.userid] or table.copy(_PlayerInfo,true)
+    if event == "ms_playerjoined" then
+      inst.Info.players[player.userid].Join = TheWorld.state.cycles
+      inst.Info.players[player.userid].Online = true
+      table.assign(player.Info,inst.Info.players[player.userid])
+    elseif event == "ms_cyclesupdategift" then
+      table.assign(inst.Info.players[player.userid],player.Info,{"Lvl","Item"})
+    elseif event == "ms_playerdespawnanddelete" or event == "ms_playerleft" then
+      player.Info.Online = false
+      player.Info.Left = TheWorld.state.cycles
+      table.assign(inst.Info.players[player.userid],player.Info)
+    elseif event == "ms_becameghost" then
+      player.Info.Death = player.Info.Death + 1
+      player.Info.DeathOn = player.components.age:GetAge()
+      table.assign(inst.Info.players[player.userid],player.Info,{"DeathOn","Death"})
+    elseif event == "ms_respawnedfromghost" then
+      player.Info.DeathAge = player.Info.DeathAge + player.components.age:GetAge() - player.Info.DeathOn
+      player.Info.DeathOn = 0
+      table.assign(inst.Info.players[player.userid],player.Info,{"DeathOn","DeathAge"})
+    end
+  end
+end
+local function OnGiftCheck()
+  for _,p in pairs(AllPlayers) do
     p.Info.lvl = GetPlayerLvl(p)
-    local giftlvl=math.min(math.floor((p.Info.lvl-10)/20),5)
+    local giftlvl=math.min(math.floor((p.Info.lvl-10)/20<0 and 0 or (p.Info.lvl-10)/20),5)
     for k,v in pairs(p.Info.Item) do
       if v > 0 then
-        for _,gift in pairs(_G.TheSim:FindEntities(0,0,0,10000,{IsGift,OwnerID..inst.userid})) do
+        for _,gift in pairs(TheSim:FindEntities(0,0,0,10000,{IsGift,OwnerID..inst.userid})) do
           if gift.prefab == k and gift.Info.lvl ~= giftlvl then
             gift.Info.lvl = giftlvl
             p.Info.Item[k] = SetGift(gift)
@@ -328,28 +456,7 @@ local function SetGift()
         p.Info.Item[k] = SetGift(gift)
       end
     end
-  end
-end
-local function SyncInfo(inst,player,event)
-  if player and player.components and player.Info then
-    inst.Info.players[player.userid] = inst.Info.players[player.userid] or table.copy(_PlayerInfo,true)
-    if event == "ms_playerjoined" then
-      inst.Info.players[player.userid].Join = _G.TheWorld.state.cycles
-      inst.Info.players[player.userid].Online = true
-      table.assign(player.Info,inst.Info.players[player.userid])
-    elseif event == "ms_playerdespawnanddelete" or event == "ms_playerleft" then
-      player.Info.Online = false
-      player.Info.Left = _G.TheWorld.state.cycles
-      table.assign(inst.Info.players[player.userid],player.Info)
-    elseif event == "ms_becameghost" then
-      player.Info.Death = player.Info.Death + 1
-      player.Info.DeathOn = player.components.age:GetAge()
-      table.assign(inst.Info.players[player.userid],player.Info,{"DeathOn","Death"})
-    elseif event == "ms_respawnedfromghost" then
-      player.Info.DeathAge = player.Info.DeathAge + player.components.age:GetAge() - player.Info.DeathOn
-      player.Info.DeathOn = 0
-      table.assign(inst.Info.players[player.userid],player.Info,{"DeathOn","DeathAge"})
-    end
+    SyncInfo(TheWorld,p,"ms_cyclesupdategift")
   end
 end
 local function Onplayerjoined(inst,player)
@@ -414,7 +521,7 @@ local function OnRevoke(inst)
 end
 local function OnShare(inst)
   local x,y,z = inst.Transform:GetWorldPosition()
-  local ents = TheSim:FindEntities(x,y,z,_ComDist,{OwnerID..inst.userid},{IsShare})
+  local ents = TheSim:FindEntities(x,y,z,_ComDist,{OwnerID..inst.userid},{IsShare,"INLIMBO"})
   for _,obj in pairs(ents) do
     if obj.components.inventoryitem==nil and obj.components.container and obj.prefab and obj.prefab ~= "cookpot" or (obj.prefab and obj.prefab=="researchlab2") then
       obj.Info[ToAddTags][IsShare] = IsShare
@@ -428,7 +535,7 @@ local function OnShare(inst)
 end
 local function OnUnshare(inst)
   local x,y,z = inst.Transform:GetWorldPosition()
-  local ents = TheSim:FindEntities(x,y,z,_ComDist,{OwnerID..inst.userid,IsShare})
+  local ents = TheSim:FindEntities(x,y,z,_ComDist,{OwnerID..inst.userid,IsShare},{"INLIMBO"})
   if table.len(ents) > 0 and ents[1].prefab and ents[1].prefab ~= "cookpot" then
     ents[1].Info[ToAddTags][IsShare] = nil
     ents[1]:RemoveTag(IsShare)
@@ -456,10 +563,10 @@ local function OnInfo(player)
   if player and player.Info then AddTaskTalk(player,GetPlayerDesc(player)) end
 end
 local function OnGather(inst)
-  if inst.Info and inst.Info.Item > 0 and GetPlayerLvl(inst) >= 30 then
+  if inst.Info and inst.Info.Lvl >= 30 then
     local x,y,z = inst.Transform:GetWorldPosition()
     local num = 0
-    for _,v in pairs(_G.TheSim:FindEntities(x,0,z,10000,{IsGift,OwnerID..inst.userid})) do
+    for _,v in pairs(TheSim:FindEntities(x,0,z,10000,{IsGift,OwnerID..inst.userid})) do
       local tx,ty,tz = v.Transform:GetWorldPosition()
       if (x-tx)^2 + (z-tz)^2 > 16 then v.Transform:SetPosition(x,0,z) num = num+1 end
     end
@@ -469,17 +576,17 @@ end
 local function OnRestart(inst)
   if inst.Info.RestartOn > 0 and inst.Info.RestartOn < (_G.os.time() - 1800) then
     if inst.components and inst.components.inventory then inst.components.inventory:DropEverything(false,false) end
-    _G.TheWorld:DoTaskInTime(0.5,function(inst) TheNet:Announce(inst:GetDisplayName().._MSGT.restart) end)
-    if inst:IsValid() then _G.TheWorld:PushEvent("ms_playerdespawnanddelete",inst) end
+    TheWorld:DoTaskInTime(0.5,function(inst) TheNet:Announce(inst:GetDisplayName().._MSGT.restart) end)
+    if inst:IsValid() then TheWorld:PushEvent("ms_playerdespawnanddelete",inst) end
   end
   AddTaskTalk(inst,inst:GetDisplayName().._MSGT.restartfail,1)
 end
 local function OnSaveKey(inst,pwd)
-  if string.IsValidKey(pwd) and inst.userid and _G.TheWorld.Info.players[inst.userid] then
+  if string.IsValidKey(pwd) and inst.userid and TheWorld.Info.players[inst.userid] then
     local isdup = false
-    for k,v in pairs(_G.TheWorld.Info.players) do if v.SaveKey==pwd and k~=inst.userid then isdup = true break end end
+    for k,v in pairs(TheWorld.Info.players) do if v.SaveKey==pwd and k~=inst.userid then isdup = true break end end
     if not isdup then
-      _G.TheWorld.Info.players[inst.userid].SaveKey = pwd
+      TheWorld.Info.players[inst.userid].SaveKey = pwd
       AddTaskTalk(inst,_MSGT.savekey..tostring(pwd))
       return
     end
@@ -489,7 +596,7 @@ end
 local function OnGetByKey(inst,pwd)
   if string.IsValidKey(pwd) and inst.userid then
     local ownername,owerid = nil,nil
-    for k,v in pairs(_G.TheWorld.Info.players) do if v.SaveKey==pwd and k~=inst.userid then ownername =v.name owerid=k break end end
+    for k,v in pairs(TheWorld.Info.players) do if v.SaveKey==pwd and k~=inst.userid then ownername =v.name owerid=k break end end
     if owerid ~= nil then
       local num = 0
       for _,s in pairs(TheSim:FindEntities(0,0,0,10000,{IsPrivate,OwnerID..owerid},{IsGift,"INLIMBO"})) do
@@ -497,7 +604,7 @@ local function OnGetByKey(inst,pwd)
         s:RemoveTag("ownerid_"..owerid)
         s:AddTag("ownerid_"..inst.userid)
       end
-      _G.TheWorld.Info.players[inst.userid].SaveKey = "null"
+      TheWorld.Info.players[inst.userid].SaveKey = "null"
       AddTaskTalk(inst,"获得"..ownername.."的物权共计"..tostring(num).."处")
     end
   end
@@ -535,18 +642,18 @@ local function OnClearMap(inst)
   if inst and inst:HasTag("player") then
     AddTaskTalk(inst,_MSGT.mapclear..tostring(delnum),0.5)
   else
-    _G.TheWorld:DoTaskInTime(5,function() TheNet:Announce(_MAP[TheShard:GetShardId()].name.._MSGT.worldclear..tostring(delnum)) end)
+    TheWorld:DoTaskInTime(5,function() TheNet:Announce(_MAP[TheShard:GetShardId()].name.._MSGT.worldclear..tostring(delnum)) end)
   end
 end
 local function DoAnnounce(inst,data)
-  if _G.TheShard:GetShardId()~="1" then return end
+  if TheShard:GetShardId()~="1" then return end
   local num = #_MSGA
-  if _G.TheWorld.state.cycles < 20 then
+  if TheWorld.state.cycles < 20 then
     local inter = math.ceil(7*60/num)
-    for i = 1, num do _G.TheWorld:DoTaskInTime(inter*i, function() _G.TheNet:Announce(_MSGA[i]) end) end
+    for i = 1, num do TheWorld:DoTaskInTime(inter*i, function() TheNet:Announce(_MSGA[i]) end) end
   else
-    _G.TheWorld:DoTaskInTime(20, function() _G.TheNet:Announce(_MSGA[1]) end)
-    for i= 1,4 do _G.TheWorld:DoTaskInTime(90*i, function() _G.TheNet:Announce(_MSGA[math.random(1+i,num)]) end) end
+    TheWorld:DoTaskInTime(20, function() TheNet:Announce(_MSGA[1]) end)
+    for i= 1,4 do TheWorld:DoTaskInTime(90*i, function() TheNet:Announce(_MSGA[math.random(1+i,num)]) end) end
   end
 end
 local function OnLsplayer(inst)
@@ -580,15 +687,14 @@ _G.ACTIONS.ATTACK.fn = function(act)
 end
 local old_action_deploy = _G.ACTIONS.DEPLOY.fn
 _G.ACTIONS.DEPLOY.fn = function(act)
-  local DeployItems  = {["butterfly"]="flower",["dug_berrybush"]="berrybush",["dug_berrybush2"]= "berrybush2",["dug_grass"]= "grass",["dug_marsh_bush"]= "marsh_bush",["dug_sapling"]= "sapling",["eyeturret_item"]= "eyeturret",["wall_ruins"]= 25,["wall_ruins_item"]= 25,["wall_stone"]= 25,["wall_stone_item"]= 25,["lureplantbulb"] = 50,["spidereggsack"]= 50,}
-  if act.invobject.prefab and DeployItems[act.invobject.prefab] and act.doer.userid then
+  if act.invobject.prefab and _DeployItems[act.invobject.prefab] and act.doer.userid then
     local x,y,z = act.pos.x,act.pos.y,act.pos.z
-    if type(DeployItems[act.invobject.prefab])=="string" and  InPrivateTown(act.doer,40) > _InTown.null then
+    if type(_DeployItems[act.invobject.prefab])=="string" and  InPrivateTown(act.doer,40) > _InTown.null then
       if act.invobject.components.deployable:CanDeploy(act.pos) then
         local obj = (act.doer.components.inventory and act.doer.components.inventory:RemoveItem(act.invobject)) or (act.doer.components.container and act.doer.components.container:RemoveItem(act.invobject))
         if obj.components.deployable:Deploy(act.pos,act.doer) then
           for _,v in pairs(TheSim:FindEntities(x,y,z,1,nil,{IsPrivate})) do
-            if v and v.prefab==DeployItems[act.invobject.prefab] then
+            if v and v.prefab==_DeployItems[act.invobject.prefab] then
               SetInfo(v,act.doer,_ActionType.OnDeloy)
               AddTags(v,v.Info[ToAddTags])
               RemoveBurnable(v)
@@ -601,8 +707,8 @@ _G.ACTIONS.DEPLOY.fn = function(act)
           return
         end
       end
-    elseif type(DeployItems[act.invobject.prefab])=="number" then
-      local limitrange = DeployItems[act.invobject.prefab]
+    elseif type(_DeployItems[act.invobject.prefab])=="number" then
+      local limitrange = _DeployItems[act.invobject.prefab]
       if InPrivateTown(act.doer,limitrange) > _InTown.owner or HasEntityInRange(x,y,z,limitrange,{"multiplayer_portal"}) then return end
     end
   end
@@ -610,7 +716,7 @@ _G.ACTIONS.DEPLOY.fn = function(act)
 end
 local old_haunt_action = _G.ACTIONS.HAUNT.fn
 _G.ACTIONS.HAUNT.fn = function(act)
-  if _G.TheWorld.ismastersim==false then return old_haunt_action(act) end
+  if TheWorld.ismastersim==false then return old_haunt_action(act) end
   if act.target and act.target.prefab and table.contains({"multiplayer_portal","resurrectionstone","amulet"},act.target.prefab) then
     return old_haunt_action(act)
   else
@@ -619,7 +725,7 @@ _G.ACTIONS.HAUNT.fn = function(act)
 end
 local old_hammer_action = _G.ACTIONS.HAMMER.fn
 _G.ACTIONS.HAMMER.fn = function(act)
-  if _G.TheWorld.ismastersim==false then return old_hammer_action(act) end
+  if TheWorld.ismastersim==false then return old_hammer_action(act) end
   if IsSuperUser(act.doer) or (act.target and OwnershipRole(act.doer,act.target) < _Privilege.granted) then
     return old_hammer_action(act)
   else
@@ -629,7 +735,7 @@ _G.ACTIONS.HAMMER.fn = function(act)
 end
 local old_dig_action = _G.ACTIONS.DIG.fn
 _G.ACTIONS.DIG.fn = function(act)
-  if _G.TheWorld.ismastersim==false then return old_dig_action(act) end
+  if TheWorld.ismastersim==false then return old_dig_action(act) end
   if IsSuperUser(act.doer) or (act.target and (OwnershipRole(act.doer,act.target) < _Privilege.granted or InPrivateTown(act.doer,40) <= _InTown.granted)) then
     return old_dig_action(act)
   else
@@ -666,13 +772,13 @@ _G.Networking_Say =  function(guid,userid,name,prefab,message,colour,whisper)
   local oldsayinst = old_networking_say(guid,userid,name,prefab,message,colour,whisper)
   local talker = GetOnlinePlayerById(userid)
   if talker==nil then return oldsayinst end
-  if whisper  and talker and talker.userid then
+  if whisper  and talker then
     local execom = {}
     for word in string.gmatch(message,"%S+") do
       local temp = _G.tonumber(word) and _G.tonumber(word) or string.lower(word)
       table.insert(execom,temp)
     end
-    if execom[1] and _CMD[execom[1]] and table.len(execom)==1 then
+    if execom[1] and _CMD[execom[1]] then
       if     execom[1] =="help" then Onhelp(talker)
       elseif execom[1] =="grant" then OnGrant(talker)
       elseif execom[1] =="revoke" then OnRevoke(talker)
@@ -721,34 +827,73 @@ local function OnLoad(inst,data)
     AddTags(inst,data.Info[ToAddTags] or {})
     RemoveTags(inst,data.Info[ToDelTags] or {})
     if inst.components.container and not inst:HasTag(IsShare) then inst.AnimState:SetMultColour(0.5,0.5,0.5,1) end
-    if inst.Info[Desc] then SetDesc(inst) end
     if inst.Info[IsSuper] then SetSuperItem(inst) end
+    if inst:HasTag(IsGift) then SetGift(inst) end
+    if inst.Info[Desc] then SetDesc(inst) end
   end
+end
+local function OnLoadWP(inst,data)
+  if inst.OnLoad_old ~= nil then inst.OnLoad_old(inst,data) end
+  if data ~= nil and data.Info ~= nil then inst.Info = data.Info end
 end
 AddPrefabPostInit("multiplayer_portal",function(inst) inst:AddTag("multiplayer_portal") end)
 AddPlayerPostInit(function(inst)
   inst.Info = inst.Info or table.copy(_PlayerInfo, true)
   if inst.components.builder then
-    if inst.components.builder.onBuild then
-      inst.components.builder.onBuild_old = inst.components.builder.onBuild
-    end
+    if inst.components.builder.onBuild then inst.components.builder.onBuild_old = inst.components.builder.onBuild end
     inst.components.builder.onBuild = OnBuild_new
   end
   if inst.components.inspectable then inst.components.inspectable.getspecialdescription = GetPlayerDesc end
   inst.OnSave_old = inst.OnSave
   inst.OnSave = OnSave
   inst.OnLoad_old = inst.OnLoad
-  inst.OnLoad = OnLoad
+  inst.OnLoad = OnLoadWP
 end)
 AddPrefabPostInit("world", function(inst)
   inst.Info = inst.Info or {}
   inst.Info.players = inst.Info.players or {}
+  inst.Info.respawnlist = inst.Info.respawnlist or {}
+  inst.Info.isinit = inst.Info.isinit or false
+  inst.Info.isrespawnsave = inst.Info.isrespawnsave or false
+  inst:ListenForEvent("ms_registermigrationportal",SetSeason)
+  inst:ListenForEvent("ms_registermigrationportal",function()
+    if not TheWorld.Info.isinit then
+      TheWorld:DoTaskInTime(2,OnIntworld)
+      TheWorld.Info.isinit=true
+    end
+  end)
+  inst:ListenForEvent("ms_registermigrationportal",function()
+    if not TheWorld.Info.isrespawnsave then
+      TheWorld:DoTaskInTime(3,SaveReSpawnInfo)
+      TheWorld.Info.isrespawnsave = true
+      TheWorld.Info.name = _MapsInfo[TheShard:GetShardId()].name
+      TheWorld.Info.respawncycles = _MapsInfo[TheShard:GetShardId()].respawncycles or 0
+      TheWorld.Info.resetcycles = _MapsInfo[TheShard:GetShardId()].resetcycles or 0
+    end
+  end)
+  inst:ListenForEvent("ms_playerspawn",function()
+    if not TheWorld.Info.isinit then
+      TheWorld:DoTaskInTime(2,OnIntworld)
+      TheWorld.Info.isinit=true
+    end
+  end)
+  inst:ListenForEvent("ms_setseason",function()
+    if TheWorld.Info.respawncycles > 0 and TheWorld.state.isautumn and TheWorld.state.remainingdaysinseason<2 then
+      TheWorld:DoTaskInTime(10,DoReSpawn)
+    end
+  end)
+  inst:ListenForEvent("ms_cyclecomplete",function()
+    if TheWorld.Info.resetcycles > 0 and math.mod(TheWorld.state.cycles,TheWorld.Info.resetcycles)==0 and TheWorld.state.cycles > 140 then
+      ResetCave()
+    end
+  end)
   inst:ListenForEvent("ms_cyclecomplete", DoAnnounce)
+  inst:ListenForEvent("ms_cyclecomplete", OnGiftCheck)
   inst:ListenForEvent("ms_setseason",OnClearMap)
   inst.OnSave_old = inst.OnSave
   inst.OnSave = OnSave
   inst.OnLoad_old = inst.OnLoad
-  inst.OnLoad = OnLoad
+  inst.OnLoad = OnLoadWP
 end)
 AddComponentPostInit("playerspawner",function(PlayerSpawner,inst)
   inst:ListenForEvent("ms_playerjoined",Onplayerjoined)
@@ -756,7 +901,16 @@ AddComponentPostInit("playerspawner",function(PlayerSpawner,inst)
   inst:ListenForEvent("ms_playerleft", Onplayerleft)
   inst:ListenForEvent("ms_becameghost",Onbecameghost)
   inst:ListenForEvent("ms_respawnedfromghost",Onrespawnedfromghost)
-  inst:ListenForEvent("ms_cyclecomplete", CheckPlayer)
+end)
+AddComponentPostInit("inventory", function(Inventory, inst)
+  Inventory.oldEquipFn = Inventory.Equip
+  function Inventory:Equip(item, old_to_active)
+    if not item.entity:HasTag(IsGift) or not item.entity:HasTag(IsSuper) or inst.userid==nil or item.entity:HasTag(OwnerID..inst.userid) then
+      return Inventory:oldEquipFn(item, old_to_active)
+    else
+      AddTaskTalk(inst,"谁 的 垃 圾 是 我 不 要")
+    end
+  end
 end)
 ----回血设置
 for _,v in pairs({"knight","bishop","rook", "minotaur", "lightninggoat"}) do
@@ -766,6 +920,10 @@ for _,v in pairs({"knight","bishop","rook", "minotaur", "lightninggoat"}) do
     end
   end)
 end
+AddPrefabPostInit("grass",function(inst)
+  inst.components.pickable.max_cycles  = _AJ.grass
+  inst.components.pickable.cycles_left = _AJ.grass
+end)
 for _,v in pairs({"berrybush","grass","sapling"}) do
   AddPrefabPostInit(v,function(inst)
     inst.OnSave_old = inst.OnSave
@@ -783,10 +941,6 @@ for k,v in pairs(_G.AllRecipes) do
     inst.OnLoad = OnLoad
   end)
 end
-AddPrefabPostInit("grass",function(inst)
-  inst.components.pickable.max_cycles  = _AJ.grass
-  inst.components.pickable.cycles_left = _AJ.grass
-end)
 for _,prefab in pairs(_QuickPickPrefab) do
   AddPrefabPostInit(prefab,function (inst)
     if inst.components.pickable then
@@ -832,7 +986,7 @@ end)
 AddComponentPostInit("pickable", function(Pickable, inst)
   Pickable.Pick_old = Pickable.Pick
   function Pickable:Pick(doer)
-    if (inst.prefab and inst.prefab ~= "flower") or OwnershipRole(doer,inst) < _Privilege.null or IsSuperUser(doer) then
+    if (inst.prefab and not table.contains({"flower","minerhat","armor_sanity","cane","piggyback","orangestaff","greenamulet"},inst.prefab)) or OwnershipRole(doer,inst) < _Privilege.null or IsSuperUser(doer) then
       return Pickable:Pick_old(doer)
     else
       AddTaskTalk(doer,_MSGT.pick,0.5)

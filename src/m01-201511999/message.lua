@@ -19,6 +19,7 @@ function SetModVariables(name)
   msg.seedsrange ={1,3}
   ---快速拾取
   msg.quickpick={"marsh_bush","reeds","sapling","tumbleweed","tallbirdnest","flower","flower_cave","flower_evil","grass","lichen","cactus","carrot","cave_banana_tree","cave_fern","berrybush","berrybush2","red_mushroom","green_mushroom","blue_mushroom"}
+  msg.deployitems  = {butterfly="flower",dug_berrybush="berrybush",dug_berrybush2= "berrybush2",dug_grass= "grass",dug_marsh_bush= "marsh_bush",dug_sapling= "sapling",eyeturret_item= "eyeturret",wall_ruins= 25,wall_ruins_item= 25,wall_stone= 25,wall_stone_item= 25,lureplantbulb= 50,spidereggsack= 50,}
   ---私有化标签
   msg.tags={private="IsPrivate",share="IsShare",town="IsTown",protect="noattack",left="IsLeft",super="IsSuper",gift="IsGift"}
   msg.burntags={light = "canlight",nolight = "nolight",fireimmune = "fireimmune"}
@@ -33,8 +34,6 @@ function SetModVariables(name)
   ---赠送物品
   msg.gitfitem={minerhat=30,armor_sanity=30,cane=30,piggyback=30,orangestaff=110,greenamulet=110}
   msg.gitfname={minerhat="矿 工 帽",armor_sanity="夜魔盔甲",cane="步行手杖",piggyback="猪 皮 包",orangestaff="传送手杖",greenamulet="建造护符"}
-  ---指令距离
-  msg.cmddis = 3
   ---指令信息
   msg.command={
     userlist ={"help","share","unshare","grant","revoke","info","ls","gather","save","get","restart"},
@@ -64,17 +63,17 @@ function SetModVariables(name)
     [4]="按U执行\"grant\"对在授权屏幕范围内的基友使用箱子\n执行\"revoke\"取消授权",
     [5]="对自建箱子设为完全私有可按U执行\"unshare\"后再次按U执行 \"revoke\"",
     [6]="在箱子边按U执行\"ls\"查看箱子信息",
-    [7]="按U执行\"info\"查看自己可制作的私有道具情况",
+    [7]="按U执行\"info\"查看自己信息情况",
     [8]="二级科技30码范为私人领地\n建造时需距离他人领地60码以上(约两个屏幕)",
-    [9]="私人领地内领主建筑受绝对保护\n领主有拆清领地内所有建筑的权力(除他人所建在保护期内的箱子)",
+    [9]="私人领地内领主建筑受绝对保护\n领主有拆清领地内所有建筑的权力(除他人所建箱子)",
     [10]="私人领地内作物 地皮防人为破坏保护\n同时他人不能放置敌对生物及建石墙...",
-    [11]="游戏内每隔季第一天自动清理地上常见垃圾物品(含部分人物MOD专用装备)\n请注意及时收拾掉落物进箱包！",
+    [11]="游戏内每季第一天自动清理地上常见垃圾物品(含部分人物MOD专用装备)\n请注意及时收拾掉落物进箱包！",
     [12]="本房为七世界组合而成：新人出生界,浅层洞穴,固定玩家界,永冬永夜界,永夏永昼界,深层洞穴1,深层洞穴2",
     [13]="提示:出生界各有2个洞口进入固定玩家界及洞穴一\n固定玩家界有各2个分别永冬及永夏;永冬与永夏有2个互通洞口\n永夏有2个洞口进入洞穴二,永冬有2个洞口进入洞穴三",
     [14]="玩家生存达一定等级后HOST赠送特制装备\n特制装备他人无法拾取及使用,随等级变化升级或收回",
     [15]="特制装备:矿工灯,步行手杖,猪皮包,夜魔盔甲,永恒瞬移手杖,永恒建造护符,\n每位玩家同时只赠送各一件,永不消失(指令get取回)",
-    [16]="特制装备分3个品级,随玩家等级提升自动升级\n玩家等级=(累计所玩天数/(重生restart次数 - 2) - 累计死亡次数*2)",
-    [17]="按U执行\"get\"收回遗落在所处世界的特制装备",
+    [16]="特制装备分3个品级,随玩家等级提升自动升级\n玩家等级=(累计所玩天数/(重生restart次数 - 3) - 累计死亡次数 -累计死亡天数*2)",
+    [17]="按U执行\"gather\"收回遗落在所处世界的特制装备",
     [18]="特制矿工 灯:品级1 照明时间16分钟,赠送条件:玩家等级30\n品级2照明时间32分钟,升级条件:玩家等级50\n品级3照明时间100分钟,升级条件:玩家等级70",
     [19]="特制步行手杖:品级1 附斧头功能,赠送条件:玩家等级30\n品级2另附镐功,升级条件:玩家等级50\n品级3另附共55点攻击力,升级条件:玩家等级70",
     [20]="特制猪皮包:品级1 附无束及锁功能,赠送条件:玩家等级30\n品级2另附理智及防潮功能,升级条件:玩家等级50\n品级3另附冰箱功能,升级条件:玩家等级70",
@@ -90,7 +89,7 @@ function SetModVariables(name)
     cast = "不 是 我 的...要 强 拆 吗 ??",
     hammer="强 拆 和 城 管 是 一 伙 的  吗 ?",
     open = "谁 家 的 ? 小 气 包....",
-    pick="谁 家 的 花 ? 强  采 行 不 ...",
+    pick="谁 家 的 ? 借 一 下 而 已 ...",
     occupi="谁  家  的 鸟 ? 这  么  小...气...摸  一  下  都  不  行",
     light="喂 ! 1 1 9 吗 ? 这 里 有 头 熊...",
     terraform="哇 哇 ... 挖 挖 ...更 健 康 ",
@@ -128,7 +127,7 @@ function SetModVariables(name)
       resetcycles=0,
       day="default",
       season="default",
-      portlink={[1]=msg.shard.main,[2]=msg.shard.main,[3]=msg.shard.cave01,[4]=msg.shard.cave01}},
+      portlink={[3]=msg.shard.cave01,[4]=msg.shard.cave01}}, --[1]=msg.shard.main,[2]=msg.shard.main,
     [msg.shard.main]  ={
       name="固定界",
       respawncycles=0,
@@ -156,7 +155,7 @@ function SetModVariables(name)
       resetcycles=0,
       day="default",
       season="default",
-      portlink={[3]=msg.shard.master,[4]=msg.shard.master,[5]=msg.shard.main,[6]=msg.shard.main}},
+      portlink={[3]=msg.shard.master,[4]=msg.shard.master}},  --,[5]=msg.shard.main,[6]=msg.shard.main
     [msg.shard.cave02]={
       name="永夏界洞穴",
       respawncycles=0,
@@ -180,9 +179,9 @@ function SetModVariables(name)
   }
   ---清理物品(=0不可叠加,>0为可叠加,数量判断<=时清理)
   msg.clearprefabs={
-    ["faroz_gls"]=0,["wheatpouch"]=0,["acehat"]=0,["skeleton_player"]=0,["lavae"]=0,["stinger"]=2,
-    ["guano"]=2,["spoiled_food"]=10,["boneshard"]=2,["feather_crow"]=2,["feather_robin"]=2,
-    ["feather_robin_winter"]=2,["houndstooth"]=2,["poop"]=2,
+    faroz_gls=0,wheatpouch=0,acehat=0,skeleton_player=0,lavae=0,stinger=2,
+    guano=2,spoiled_food=10,boneshard=2,feather_crow=2,feather_robin=2,
+    feather_robin_winter=2,houndstooth=2,poop=2,
   }
   return table.copy(msg[name], true)
 end
